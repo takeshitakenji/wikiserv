@@ -29,17 +29,17 @@ Design
 3. A caching system with a directory tree that corresponds to the source
    (asciidoc, etc.) structure.
 
-   * Web server processes will have a shared lock on a toplevel `.lock`
+    * Web server processes will have a shared lock on a toplevel `.lock`
      file.
-   * Other threads and processes will have an exclusive lock on a toplevel
+    * Other threads and processes will have an exclusive lock on a toplevel
      `.lock` file.
 
 4. The caching system will have two methods of cleanup.
 
-   1. A time to live system that with a configurable maximum age.  The
+    1. A time to live system that with a configurable maximum age.  The
       cleanup process will have to be scheduled in cron or something
       similar.
-   2. An optional LRU-based system that will delete the oldest entry
+    2. An optional LRU-based system that will delete the oldest entry
       when there are too many sitting around.  A thread will run in the
       background will have this task dispatched to it.
 
