@@ -8,7 +8,7 @@ converting them to HTML and a caching mechanism.
 Justification
 -------------
 
-I've tried using purely web-based wikis like [http://www.mediawiki.org/wiki/MediaWiki](MediaWiki),
+I've tried using purely web-based wikis like [MediaWiki](http://www.mediawiki.org/wiki/MediaWiki]),
 but the database and server maintenance involved with them have always ended up
 leaving me neglecting them.  This time, I'm going to try something a bit
 different
@@ -42,5 +42,5 @@ Design
    configurable checksum to check for changes in source files.
 
 6. The actual filter will be configurable and replaceable, with
-   [http://www.methods.co.nz/asciidoc/](asciidoc) as both the initial
+   [asciidoc](http://www.methods.co.nz/asciidoc/) as both the initial
    and reference implementation.
