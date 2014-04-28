@@ -45,6 +45,7 @@ class _File(object):
 		return info.st_size
 	def checksum(self, cksum_type):
 		hasher = cksum_type()
+		self.__fd.seek(0)
 		try:
 			data = self.__fd.read(self.BLOCKSIZE)
 			while data:
@@ -116,6 +117,11 @@ if __name__ == '__main__':
 			with File(self.path) as info:
 				self.assertEqual(info.size, len(self.FILE_TEXT))
 				self.assertEqual(info.modified, self.mtime)
+				self.assertEqual(info.checksum(md5), self.FILE_CHECKSUM)
+		def test_file_info_read(self):
+			with File(self.path) as info:
+				self.assertEqual(info.checksum(md5), self.FILE_CHECKSUM)
+				self.assertEqual(info.handle.read(), self.FILE_TEXT)
 				self.assertEqual(info.checksum(md5), self.FILE_CHECKSUM)
 		def test_file_lock_info(self):
 			with LockedFile(self.path) as info:
