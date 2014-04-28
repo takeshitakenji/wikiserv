@@ -11,7 +11,12 @@ Justification
 I've tried using purely web-based wikis like [MediaWiki](http://www.mediawiki.org/wiki/MediaWiki]),
 but the database and server maintenance involved with them have always ended up
 leaving me neglecting them.  This time, I'm going to try something a bit
-different
+different.
+
+Requirements
+------------
+1. Python 3 (3.3 or newer)
+2. [python-dateutil](http://labix.org/python-dateutil)
 
 Design
 ------
@@ -44,3 +49,6 @@ Design
 6. The actual filter will be configurable and replaceable, with
    [asciidoc](http://www.methods.co.nz/asciidoc/) as both the initial
    and reference implementation.
+
+7. Any source file revision control is left to the person managing the
+   source directory tree.
