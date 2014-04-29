@@ -11,25 +11,37 @@ import filestuff
 
 
 def timestamps_equivalent(t1, t2, tolerance = 0.001):
+	"""
+		This function is required when comparing timestamps when the standard
+		datetime.timestamp() result is used.  The fixed-point method used now
+		obviates the need for this.
+	"""
 	if isinstance(tolerance, timedelta):
 		tolerance = abs(tolerance.total_seconds())
 	return abs((t1 - t2).total_seconds()) <= tolerance
 
 class EntryHeader(object):
 	__slots__ = 'size', 'timestamp', 'checksum'
-	minsize = len(struct.pack('!LdH', 0, 0, 0))
-	struct_fmt = '!LdH'
+	struct_fmt = '!IQIH'
+	minsize = len(struct.pack(struct_fmt, 0, 0, 0, 0))
 	def __init__(self, size, timestamp, checksum):
 		self.size, self.timestamp, self.checksum = size, timestamp, checksum
+	@staticmethod
+	def datetime2fp(dt):
+		return int(dt.timestamp()), dt.microsecond
+	@staticmethod
+	def fp2datetime(s, ms, tzinfo):
+		return datetime.utcfromtimestamp(s).replace(microsecond = ms, tzinfo = tzinfo)
 	def write(self, stream):
-		count = stream.write(struct.pack(self.struct_fmt, self.size, self.timestamp.timestamp(), len(self.checksum)))
+		seconds, microseconds = self.datetime2fp(self.timestamp)
+		count = stream.write(struct.pack(self.struct_fmt, self.size, seconds, microseconds, len(self.checksum)))
 		count += stream.write(self.checksum)
 		return count
 	@classmethod
 	def read(cls, stream):
 		buff = stream.read(cls.minsize)
-		size, timestamp, cksum_len = struct.unpack(cls.struct_fmt, buff)
-		timestamp = datetime.utcfromtimestamp(timestamp).replace(tzinfo = utc)
+		size, seconds, microseconds, cksum_len = struct.unpack(cls.struct_fmt, buff)
+		timestamp = cls.fp2datetime(seconds, microseconds, utc)
 		checksum = None
 		if cksum_len > 0:
 			checksum = stream.read(cksum_len)
@@ -84,6 +96,7 @@ if __name__ == '__main__':
 
 			self.assertEqual(len(self.FILE_TEXT), test2.size)
 			self.assertTrue(timestamps_equivalent(self.timestamp, test2.timestamp))
+			self.assertEqual(self.timestamp, test2.timestamp)
 			self.assertEqual(self.FILE_CHECKSUM, test2.checksum)
 
 	unittest.main()
