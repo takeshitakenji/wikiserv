@@ -16,7 +16,8 @@ different.
 Requirements
 ------------
 1. Python 3 (3.3 or newer)
-2. [python-dateutil](http://labix.org/python-dateutil)
+2. [pytz](http://pytz.sourceforge.net/)
+3. [python-dateutil](http://labix.org/python-dateutil)
 
 Design
 ------

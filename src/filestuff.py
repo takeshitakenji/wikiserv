@@ -6,9 +6,9 @@ if sys.version_info < (3, 3):
 import os.path
 from os.path import normpath
 import fcntl
-from dateutil.tz import tzlocal
 from datetime import datetime
 from os import fstat
+from pytz import utc
 
 class _BaseFile(object):
 	@property
@@ -31,14 +31,13 @@ class BaseFile(object):
 
 class _File(object):
 	__slots__ = '__fd',
-	localtz = tzlocal()
 	BLOCKSIZE = 4096
 	def __init__(self, fd):
 		self.__fd = fd
 	@property
 	def modified(self):
 		info = fstat(self.__fd.fileno())
-		return datetime.fromtimestamp(info.st_mtime).replace(tzinfo = self.localtz)
+		return datetime.utcfromtimestamp(info.st_mtime).replace(tzinfo = utc)
 	@property
 	def size(self):
 		info = fstat(self.__fd.fileno())
@@ -92,6 +91,7 @@ if __name__ == '__main__':
 	from os import remove, stat
 	from tempfile import NamedTemporaryFile
 	from hashlib import md5
+	from dateutil.tz import tzlocal
 
 	localtz = tzlocal()
 
@@ -107,7 +107,7 @@ if __name__ == '__main__':
 			with NamedTemporaryFile(delete = False) as tmp:
 				self.path = tmp.name
 				tmp.write(self.FILE_TEXT)
-			self.mtime = datetime.fromtimestamp(stat(self.path).st_mtime).replace(tzinfo = localtz)
+			self.mtime = datetime.fromtimestamp(stat(self.path).st_mtime).replace(tzinfo = localtz).astimezone(utc)
 		def tearDown(self):
 			remove(self.path)
 		def test_file_basic(self):
