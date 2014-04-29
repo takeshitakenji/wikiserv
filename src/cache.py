@@ -25,6 +25,10 @@ class EntryHeader(object):
 	struct_fmt = '!IQIH'
 	minsize = len(struct.pack(struct_fmt, 0, 0, 0, 0))
 	def __init__(self, size, timestamp, checksum):
+		if size > 0xFFFFFFFF:
+			raise ValueError('Size is too large')
+		if len(checksum) > 0xFFFF:
+			raise ValueError('Checksum is too long')
 		self.size, self.timestamp, self.checksum = size, timestamp, checksum
 	@staticmethod
 	def datetime2fp(dt):
@@ -77,6 +81,10 @@ if __name__ == '__main__':
 			self.assertEqual(len(self.FILE_TEXT), test.size)
 			self.assertEqual(self.timestamp, test.timestamp)
 			self.assertEqual(self.FILE_CHECKSUM, test.checksum)
+		def test_bad_checksum(self):
+			self.assertRaises(ValueError, EntryHeader, 0, self.timestamp, ' ' * (0xFFFF + 1))
+		def test_bad_size(self):
+			self.assertRaises(ValueError, EntryHeader, 0xFFFFFFFF + 1, self.timestamp, ' ')
 		def test_write(self):
 			test = EntryHeader(len(self.FILE_TEXT), self.timestamp, self.FILE_CHECKSUM)
 			with open(self.path, 'wb') as outf:
