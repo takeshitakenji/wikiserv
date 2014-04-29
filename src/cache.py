@@ -32,7 +32,10 @@ class EntryHeader(object):
 		self.size, self.timestamp, self.checksum = size, timestamp, checksum
 	@staticmethod
 	def datetime2fp(dt):
-		return int(dt.timestamp()), dt.microsecond
+		seconds = int(dt.timestamp())
+		if seconds < 0:
+			seconds -= 1
+		return seconds, dt.microsecond
 	@staticmethod
 	def fp2datetime(s, ms, tzinfo):
 		return datetime.utcfromtimestamp(s).replace(microsecond = ms, tzinfo = tzinfo)
@@ -66,6 +69,26 @@ if __name__ == '__main__':
 		hasher.update(s)
 		return hasher.digest()
 	
+
+	class DateTest(unittest.TestCase):
+		NEG_TIMESTAMP = datetime(1900, 1, 1, 5, 30, 29, 12345, utc)
+		POS_TIMESTAMP = datetime(2000, 1, 1, 5, 30, 29, 12345, utc)
+		ZERO_TIMESTAMP = datetime.utcfromtimestamp(.001).replace(tzinfo = utc)
+		def test_negative(self):
+			seconds, microseconds = EntryHeader.datetime2fp(self.NEG_TIMESTAMP)
+			self.assertLess(seconds, 0)
+			self.assertGreater(microseconds, 0)
+			self.assertEqual(self.NEG_TIMESTAMP, EntryHeader.fp2datetime(seconds, microseconds, self.NEG_TIMESTAMP.tzinfo))
+		def test_positive(self):
+			seconds, microseconds = EntryHeader.datetime2fp(self.POS_TIMESTAMP)
+			self.assertGreater(seconds, 0)
+			self.assertGreater(microseconds, 0)
+			self.assertEqual(self.POS_TIMESTAMP, EntryHeader.fp2datetime(seconds, microseconds, self.POS_TIMESTAMP.tzinfo))
+		def test_zero(self):
+			seconds, microseconds = EntryHeader.datetime2fp(self.ZERO_TIMESTAMP)
+			self.assertEqual(seconds, 0)
+			self.assertGreater(microseconds, 0)
+			self.assertEqual(self.ZERO_TIMESTAMP, EntryHeader.fp2datetime(seconds, microseconds, self.ZERO_TIMESTAMP.tzinfo))
 
 	class EntryHeaderTest(unittest.TestCase):
 		FILE_TEXT = 'TEST FILE\n'.encode('ascii')
@@ -103,8 +126,8 @@ if __name__ == '__main__':
 				self.assertEqual(inf.read(), self.FILE_TEXT)
 
 			self.assertEqual(len(self.FILE_TEXT), test2.size)
-			self.assertTrue(timestamps_equivalent(self.timestamp, test2.timestamp))
 			self.assertEqual(self.timestamp, test2.timestamp)
+			self.assertTrue(timestamps_equivalent(self.timestamp, test2.timestamp))
 			self.assertEqual(self.FILE_CHECKSUM, test2.checksum)
 
 	unittest.main()
