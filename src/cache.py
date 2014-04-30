@@ -7,8 +7,9 @@ import struct
 from datetime import datetime, timedelta
 from pytz import utc
 import filestuff
-import fcntl
-from os import fstat
+import fcntl, os.path
+from os import fstat, mkdir
+from os.path import join as path_join, isdir, isfile, normpath
 
 
 
@@ -93,7 +94,11 @@ class Entry(object):
 		info = fstat(self.__handle.fileno())
 		self.__active = (info.st_size >= EntryHeader.minsize)
 
-		self.__header = EntryHeader.read(self.__handle) if self.__active else None
+		try:
+			self.__header = EntryHeader.read(self.__handle) if self.__active else None
+		except ValueError:
+			self.__active = False
+			self.__header = None
 		self.__payload_start = self.__handle.tell() if self.__active else None
 	def close(self):
 		fcntl.lockf(self.__handle, fcntl.LOCK_EX)
@@ -131,12 +136,59 @@ class Entry(object):
 		return self.__handle.fileno()
 
 
+
+class Cache(object):
+	__slots__ = '__root', '__filter_function', '__checksum_function', '__source_root'
+	def __init__(self, root, source_root, checksum_function, filter_function):
+		self.__root = root
+		if not isdir(source_root):
+			raise ValueError('Not a directory: %s' % source_root)
+		self.__source_root = source_root
+		self.__checksum_function = checksum_function
+		self.__filter_function = filter_function
+		if not isdir(root):
+			mkdir(root)
+		with open(self.lockfile, 'wb'):
+			pass
+	def __get_entry(self, path):
+		path = normpath(path)
+		if any((part.startswith('.') for part in path.split(os.path.sep))):
+			raise ValueError('Path entries cannot start with "."')
+		cache_path = normpath(path_join(self.__root, path))
+		handle = None
+		try:
+			handle = open(path, 'r+b')
+		except IOError:
+			handle = open(path, 'w+b')
+		entry = Entry(handle)
+
+		original_path = normpath(path_join(self.__source_root, path))
+		try:
+			with filestuff.LockedFile(original_path) as original:
+				header = entry.header
+				new_header = EntryHeader(original.size, original.modified, original.checksum(self.__checksum_function))
+				if header != new_header:
+					entry.header = new_header
+					self.__filter_function(original.handle, entry)
+				entry.seek(0)
+			return entry
+		except IOError:
+			raise KeyError(path)
+
+	def __getitem__(self, path):
+		return EntryWrapper(path, self.__get_entry)
+	@property
+	def lockfile(self):
+		return path_join(self.__root, '.lock')
+
+
 if __name__ == '__main__':
 	import unittest
 	from os import remove, stat
-	from tempfile import TemporaryDirectory, NamedTemporaryFile
+	from tempfile import TemporaryDirectory, NamedTemporaryFile, mkdtemp
 	from hashlib import md5
 	from codecs import getreader, getwriter
+	from shutil import copyfileobj, rmtree
 
 	def hashstring(s, cksum_type):
 		hasher = cksum_type()
@@ -309,4 +361,20 @@ if __name__ == '__main__':
 				self.assertEqual(entry.read(), self.FILE_TEXT2)
 			finally:
 				entry.close()
+	
+	class CacheTest(unittest.TestCase):
+		@classmethod
+		def process(cls, inf, outf):
+			outf.write('TOUCHED\n'.encode('ascii'))
+			copyfileobj(inf, outf)
+		def setUp(self):
+			self.tmpdir = mkdtemp()
+			self.cachedir = mkdtemp()
+			self.cache = Cache(self.tmpdir, self.cachedir, md5, self.process)
+		def tearDown(self):
+			self.cache = None
+			rmtree(self.cachedir)
+			rmtree(self.tmpdir)
+		def test_basic(self):
+			self.assertTrue(isfile(self.cache.lockfile))
 	unittest.main()
