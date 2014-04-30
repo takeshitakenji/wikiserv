@@ -234,10 +234,14 @@ if __name__ == '__main__':
 		# Need to use r+b for reading because of LOCK_EX
 		FILE_TEXT = 'TEST FILE\n'.encode('ascii')
 		FILE_CHECKSUM = hashstring(FILE_TEXT, md5)
+
+		FILE_TEXT2 = 2 * FILE_TEXT
+		FILE_CHECKSUM2 = hashstring(FILE_TEXT2, md5)
 		def setUp(self):
 			with NamedTemporaryFile(delete = False) as tmp:
 				self.path = tmp.name
 			self.timestamp = datetime.utcnow().replace(tzinfo = utc)
+			self.timestamp2 = self.timestamp + timedelta(days = 1)
 		def tearDown(self):
 			remove(self.path)
 		def test_fresh(self):
@@ -274,6 +278,31 @@ if __name__ == '__main__':
 				self.assertIsNotNone(entry.header)
 				self.assertEqual(entry.header, header)
 				self.assertEqual(entry.read(), self.FILE_TEXT)
+			finally:
+				entry.close()
+		def test_create_overwrite(self):
+			header = EntryHeader(len(self.FILE_TEXT), self.timestamp, self.FILE_CHECKSUM)
+			entry = Entry(open(self.path, 'w+b'))
+			try:
+				entry.header = header
+				self.assertGreater(entry.write(self.FILE_TEXT), 0)
+			finally:
+				entry.close()
+			header2 = EntryHeader(len(self.FILE_TEXT2), self.timestamp2, self.FILE_CHECKSUM2)
+			entry = Entry(open(self.path, 'r+b'))
+			try:
+				self.assertTrue(entry.active)
+				entry.header = header2
+				entry.write(self.FILE_TEXT2)
+			finally:
+				entry.close()
+
+			entry = Entry(open(self.path, 'r+b'))
+			try:
+				self.assertTrue(entry.active)
+				self.assertIsNotNone(entry.header)
+				self.assertEqual(entry.header, header2)
+				self.assertEqual(entry.read(), self.FILE_TEXT2)
 			finally:
 				entry.close()
 	unittest.main()
