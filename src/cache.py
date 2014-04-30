@@ -431,6 +431,28 @@ if __name__ == '__main__':
 				self.assertIsNotNone(data)
 				self.assertEqual('TOUCHED\nfoobar'.encode('ascii'), data)
 			self.assertEqual(self.count, 1)
+		def test_update(self):
+			temporary = 'test.txt'
+			test_string = 'foobar'
+			temporary_path = path_join(self.tmpdir, temporary)
+			with open(temporary_path, 'w', encoding = 'ascii') as tmp:
+				tmp.write(test_string)
+			with self.cache[temporary] as entry:
+				pass
+			self.assertEqual(self.count, 1)
+
+			test_string = test_string * 2
+			with open(temporary_path, 'w', encoding = 'ascii') as tmp:
+				tmp.write(test_string)
+			with filestuff.File(temporary_path) as info:
+				header = EntryHeader(info.size, info.modified, info.checksum(md5))
+
+			with self.cache[temporary] as entry:
+				self.assertEqual(header, entry.header)
+				data = entry.read()
+				self.assertIsNotNone(data)
+				self.assertEqual('TOUCHED\nfoobarfoobar'.encode('ascii'), data)
+			self.assertEqual(self.count, 2)
 		def test_multiple_hit(self):
 			temporary = 'test.txt'
 			test_string = 'foobar'
