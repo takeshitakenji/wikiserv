@@ -24,8 +24,9 @@ def timestamps_equivalent(t1, t2, tolerance = 0.001):
 
 class EntryHeader(object):
 	__slots__ = 'size', 'timestamp', 'checksum'
+	MAGIC = b'\xCA\xCE01'
 	struct_fmt = '!IQIH'
-	minsize = len(struct.pack(struct_fmt, 0, 0, 0, 0))
+	minsize = len(MAGIC) + len(struct.pack(struct_fmt, 0, 0, 0, 0))
 	def __init__(self, size, timestamp, checksum):
 		if size > 0xFFFFFFFF:
 			raise ValueError('Size is too large')
@@ -48,13 +49,16 @@ class EntryHeader(object):
 		return datetime.utcfromtimestamp(s).replace(microsecond = ms, tzinfo = tzinfo)
 	def write(self, stream):
 		seconds, microseconds = self.datetime2fp(self.timestamp)
-		count = stream.write(struct.pack(self.struct_fmt, self.size, seconds, microseconds, len(self.checksum)))
+		count = stream.write(self.MAGIC)
+		count += stream.write(struct.pack(self.struct_fmt, self.size, seconds, microseconds, len(self.checksum)))
 		count += stream.write(self.checksum)
 		return count
 	@classmethod
 	def read(cls, stream):
 		buff = stream.read(cls.minsize)
-		size, seconds, microseconds, cksum_len = struct.unpack(cls.struct_fmt, buff)
+		if buff[:len(cls.MAGIC)] != cls.MAGIC:
+			raise ValueError('This is not a recognized format')
+		size, seconds, microseconds, cksum_len = struct.unpack(cls.struct_fmt, buff[len(cls.MAGIC):])
 		timestamp = cls.fp2datetime(seconds, microseconds, utc)
 		checksum = None
 		if cksum_len > 0:
