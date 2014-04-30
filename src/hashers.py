@@ -9,7 +9,7 @@ import struct
 STEP = 4096
 
 class Adler32(object):
-	name = 'Adler32'
+	name = 'adler32'
 	__slots__ = '__checksum',
 	def __init__(self):
 		self.__checksum = None
@@ -19,7 +19,7 @@ class Adler32(object):
 		return struct.pack('!I', self.__checksum)
 		
 class CRC32(object):
-	name = 'CRC32'
+	name = 'crc32'
 	__slots__ = '__checksum',
 	def __init__(self):
 		self.__checksum = None
@@ -30,16 +30,20 @@ class CRC32(object):
 
 
 
-ALGORITHMS = {name : functools.partial(hashlib.new, name) for name in hashlib.algorithms_available}
+ALGORITHMS = {name.lower() : functools.partial(hashlib.new, name) for name in hashlib.algorithms_available}
 ALGORITHMS[Adler32.name] = Adler32
 ALGORITHMS[CRC32.name] = CRC32
 
 
 def available_hashers():
+	global ALGORITHMS
 	return frozenset(ALGORITHMS.keys())
 def get_hasher(name):
 	global ALGORITHMS
-	return ALGORITHMS[name]
+	try:
+		return ALGORITHMS[name]
+	except KeyError:
+		raise ValueError('Invalid checksum algorithm: %s' % name)
 
 if __name__ == '__main__':
 	import unittest
@@ -48,6 +52,8 @@ if __name__ == '__main__':
 		TEST_DATA = b'TEST' * 4096
 		def test_available(self):
 			self.assertGreater(len(available_hashers()), 0)
+		def test_invalid(self):
+			self.assertRaises(ValueError, get_hasher, None)
 		def test_get(self):
 			for algorithm in available_hashers():
 				hasher = get_hasher(algorithm)
@@ -65,7 +71,7 @@ if __name__ == '__main__':
 				hasher.update(self.TEST_DATA)
 				digest = hasher.digest()
 				self.assertGreater(len(digest), 0)
-				print('%s => %s' % (hasher.name, digest))
+				print('%s => %s' % (algorithm, digest))
 
 
 	unittest.main()
