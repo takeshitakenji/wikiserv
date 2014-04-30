@@ -84,7 +84,6 @@ class File(BaseFile):
 		self.fd = None
 
 class LockedFile(File):
-	__slots__ = 'mode',
 	def __enter__(self):
 		self.fd = open(self.path, 'rb')
 		fcntl.lockf(self.fd, fcntl.LOCK_SH)
@@ -95,6 +94,16 @@ class LockedFile(File):
 		self.fd.close()
 		self.fd = None
 
+class ExclusivelyLockedFile(File):
+	def __enter__(self):
+		self.fd = open(self.path, 'r+b')
+		fcntl.lockf(self.fd, fcntl.LOCK_EX)
+		return _File(self.fd)
+	def __exit__(self, type, value, tb):
+		self.fd.flush()
+		fcntl.lockf(self.fd, fcntl.LOCK_UN)
+		self.fd.close()
+		self.fd = None
 
 if __name__ == '__main__':
 	import unittest
@@ -135,6 +144,11 @@ if __name__ == '__main__':
 				self.assertEqual(info.checksum(md5), self.FILE_CHECKSUM)
 		def test_file_lock_info(self):
 			with LockedFile(self.path) as info:
+				self.assertEqual(info.size, len(self.FILE_TEXT))
+				self.assertEqual(info.modified, self.mtime)
+				self.assertEqual(info.checksum(md5), self.FILE_CHECKSUM)
+
+			with ExclusivelyLockedFile(self.path) as info:
 				self.assertEqual(info.size, len(self.FILE_TEXT))
 				self.assertEqual(info.modified, self.mtime)
 				self.assertEqual(info.checksum(md5), self.FILE_CHECKSUM)
