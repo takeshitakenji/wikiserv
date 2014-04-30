@@ -101,9 +101,12 @@ class Entry(object):
 			self.__header = None
 		self.__payload_start = self.__handle.tell() if self.__active else None
 	def close(self):
-		fcntl.lockf(self.__handle, fcntl.LOCK_EX)
-		self.__handle.close()
-		self.__handle = None
+		if self.__handle is not None:
+			fcntl.lockf(self.__handle, fcntl.LOCK_EX)
+			self.__handle.close()
+			self.__handle = None
+	def __del__(self):
+		self.close()
 	@property
 	def active(self):
 		return self.__active
@@ -173,7 +176,11 @@ class Cache(object):
 				entry.seek(0)
 			return entry
 		except IOError:
+			entry.close()
 			raise KeyError(path)
+		except:
+			entry.close()
+			raise
 
 	def __getitem__(self, path):
 		return EntryWrapper(path, self.__get_entry)
@@ -263,6 +270,8 @@ if __name__ == '__main__':
 					self.key, self.__close = key, close
 				def close(self):
 					self.__close(self.key)
+				def __del__(self):
+					self.close()
 			def __init__(self):
 				self.entries = {}
 			def get_entry(self, key):
