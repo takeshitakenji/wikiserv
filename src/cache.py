@@ -135,13 +135,39 @@ class Entry(object):
 		return self.__handle.read(length)
 	def write(self, s):
 		return self.__handle.write(s)
+	@property
+	def name(self):
+		return self.__handle.name
 	def fileno(self):
 		return self.__handle.fileno()
 
 
+class FileLock(object):
+	EXCLUSIVE, SHARED = range(2)
+	__slots__ = '__path', '__mode', '__fd'
+	def __init__(self, path, mode):
+		if mode not in [self.EXCLUSIVE, self.SHARED]:
+			raise ValueError('Invalid mode')
+		self.__path = path
+		self.__mode = mode
+		with open(self.__path, 'wb'):
+			pass
+		self.__fd = None
+	def __enter__(self):
+		if self.__mode == self.EXCLUSIVE:
+			self.__fd = open(self.__path, 'wb')
+			fcntl.lockf(self.__fd, fcntl.LOCK_EX)
+		else:
+			self.__fd = open(self.__path, 'rb')
+			fcntl.lockf(self.__fd, fcntl.LOCK_SH)
+	def __exit__(self, type, value, tb):
+		fcntl.lockf(self.__fd, fcntl.LOCK_UN)
+		self.__fd.close()
+		self.__fd = None
+
 
 class Cache(object):
-	__slots__ = '__root', '__filter_function', '__checksum_function', '__source_root'
+	__slots__ = '__root', '__filter_function', '__checksum_function', '__source_root', '__lock',
 	def __init__(self, root, source_root, checksum_function, filter_function):
 		self.__root = root
 		if not isdir(source_root):
@@ -157,31 +183,31 @@ class Cache(object):
 		path = normpath(path)
 		if any((part.startswith('.') for part in path.split(os.path.sep))):
 			raise ValueError('Path entries cannot start with "."')
-		cache_path = normpath(path_join(self.__root, path))
-		handle = None
-		try:
-			handle = open(path, 'r+b')
-		except IOError:
-			handle = open(path, 'w+b')
-		entry = Entry(handle)
+		with FileLock(self.lockfile, FileLock.SHARED):
+			cache_path = normpath(path_join(self.__root, path))
+			handle = None
+			try:
+				handle = open(cache_path, 'r+b')
+			except IOError:
+				handle = open(cache_path, 'w+b')
+			entry = Entry(handle)
 
-		original_path = normpath(path_join(self.__source_root, path))
-		try:
-			with filestuff.LockedFile(original_path) as original:
-				header = entry.header
-				new_header = EntryHeader(original.size, original.modified, original.checksum(self.__checksum_function))
-				if header != new_header:
-					entry.header = new_header
-					self.__filter_function(original.handle, entry)
-				entry.seek(0)
-			return entry
-		except IOError:
-			entry.close()
-			raise KeyError(path)
-		except:
-			entry.close()
-			raise
-
+			original_path = normpath(path_join(self.__source_root, path))
+			try:
+				with filestuff.LockedFile(original_path) as original:
+					header = entry.header
+					new_header = EntryHeader(original.size, original.modified, original.checksum(self.__checksum_function))
+					if header != new_header:
+						entry.header = new_header
+						self.__filter_function(original.handle, entry)
+					entry.seek(0)
+				return entry
+			except IOError:
+				entry.close()
+				raise KeyError(path)
+			except:
+				entry.close()
+				raise
 	def __getitem__(self, path):
 		return EntryWrapper(path, self.__get_entry)
 	@property
@@ -196,6 +222,7 @@ if __name__ == '__main__':
 	from hashlib import md5
 	from codecs import getreader, getwriter
 	from shutil import copyfileobj, rmtree
+	from traceback import print_stack
 
 	def hashstring(s, cksum_type):
 		hasher = cksum_type()
@@ -372,18 +399,59 @@ if __name__ == '__main__':
 				entry.close()
 	
 	class CacheTest(unittest.TestCase):
-		@classmethod
-		def process(cls, inf, outf):
+		def process(self, inf, outf):
+			print('PROCESS(INF=%s, OUTF=%s)' % (inf.name, outf.name))
+			self.count += 1
 			outf.write('TOUCHED\n'.encode('ascii'))
 			copyfileobj(inf, outf)
 		def setUp(self):
 			self.tmpdir = mkdtemp()
 			self.cachedir = mkdtemp()
-			self.cache = Cache(self.tmpdir, self.cachedir, md5, self.process)
+			self.count = 0
+			self.cache = Cache(self.cachedir, self.tmpdir, md5, self.process)
 		def tearDown(self):
 			self.cache = None
 			rmtree(self.cachedir)
 			rmtree(self.tmpdir)
-		def test_basic(self):
+		def test_exists(self):
 			self.assertTrue(isfile(self.cache.lockfile))
+		def test_initial_miss(self):
+			temporary = 'test.txt'
+			test_string = 'foobar'
+			temporary_path = path_join(self.tmpdir, temporary)
+			with open(temporary_path, 'w', encoding = 'ascii') as tmp:
+				tmp.write(test_string)
+			self.assertTrue(isfile(temporary_path))
+			with filestuff.File(temporary_path) as info:
+				header = EntryHeader(info.size, info.modified, info.checksum(md5))
+
+			with self.cache[temporary] as entry:
+				self.assertEqual(header, entry.header)
+				data = entry.read()
+				self.assertIsNotNone(data)
+				self.assertEqual('TOUCHED\nfoobar'.encode('ascii'), data)
+			self.assertEqual(self.count, 1)
+		def test_multiple_hit(self):
+			temporary = 'test.txt'
+			test_string = 'foobar'
+			temporary_path = path_join(self.tmpdir, temporary)
+			with open(temporary_path, 'w', encoding = 'ascii') as tmp:
+				tmp.write(test_string)
+			self.assertTrue(isfile(temporary_path))
+			with filestuff.File(temporary_path) as info:
+				header = EntryHeader(info.size, info.modified, info.checksum(md5))
+
+			with self.cache[temporary] as entry:
+				self.assertEqual(header, entry.header)
+				data = entry.read()
+				self.assertIsNotNone(data)
+				self.assertEqual('TOUCHED\nfoobar'.encode('ascii'), data)
+			self.assertEqual(self.count, 1)
+
+			with self.cache[temporary] as entry:
+				self.assertEqual(header, entry.header)
+				data = entry.read()
+				self.assertIsNotNone(data)
+				self.assertEqual('TOUCHED\nfoobar'.encode('ascii'), data)
+			self.assertEqual(self.count, 1)
 	unittest.main()

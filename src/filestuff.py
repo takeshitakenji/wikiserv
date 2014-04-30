@@ -12,6 +12,11 @@ from pytz import utc
 
 class _BaseFile(object):
 	@property
+	def name(self):
+		raise NotImplementedError
+	def fileno(self):
+		raise NotImplementedError
+	@property
 	def modified(self):
 		raise NotImplementedError
 	@property
@@ -34,6 +39,11 @@ class _File(object):
 	BLOCKSIZE = 4096
 	def __init__(self, fd):
 		self.__fd = fd
+	@property
+	def name(self):
+		return self.__fd.name
+	def fileno(self):
+		return self.__fd.fileno()
 	@property
 	def modified(self):
 		info = fstat(self.__fd.fileno())
