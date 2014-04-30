@@ -7,6 +7,8 @@ import struct
 from datetime import datetime, timedelta
 from pytz import utc
 import filestuff
+import fcntl
+from os import fstat
 
 
 
@@ -30,6 +32,11 @@ class EntryHeader(object):
 		if len(checksum) > 0xFFFF:
 			raise ValueError('Checksum is too long')
 		self.size, self.timestamp, self.checksum = size, timestamp, checksum
+	def __eq__(self, other):
+		if not all((hasattr(other, attr) for attr in ['size', 'timestamp', 'checksum'])):
+			return False
+		else:
+			return self.size == other.size and self.timestamp == other.timestamp and self.checksum == other.checksum
 	@staticmethod
 	def datetime2fp(dt):
 		seconds = int(dt.timestamp())
@@ -71,6 +78,53 @@ class EntryWrapper(object):
 	def __exit__(self, type, value, tb):
 		self.__entry.close()
 		self.__entry = None
+
+
+class Entry(object):
+	__slots__ = '__handle', '__header', '__payload_start', '__active'
+	def __init__(self, handle):
+		self.__handle = handle
+		fcntl.lockf(self.__handle, fcntl.LOCK_EX)
+
+		info = fstat(self.__handle.fileno())
+		self.__active = (info.st_size >= EntryHeader.minsize)
+
+		self.__header = EntryHeader.read(self.__handle) if self.__active else None
+		self.__payload_start = self.__handle.tell() if self.__active else None
+	def close(self):
+		fcntl.lockf(self.__handle, fcntl.LOCK_EX)
+		self.__handle.close()
+		self.__handle = None
+	@property
+	def active(self):
+		return self.__active
+	@property
+	def header(self):
+		return self.__header
+	@header.setter
+	def header(self, header):
+		"Marks the file for truncation and recreation"
+		if not isinstance(header, EntryHeader):
+			raise ValueError('Invalid EntryHeader')
+		self.__header = header
+		self.__handle.seek(0)
+		self.__handle.truncate(0)
+		self.__header.write(self.__handle)
+		self.__handle.flush()
+		self.__payload_start = self.__handle.tell()
+		self.__active = True
+	def seek(self, pos):
+		if not self.__active:
+			raise RuntimeError('Entry is not available for seeking')
+		self.__handle.seek(self.__payload_start + pos)
+	def read(self, length = None):
+		if not self.__active:
+			raise RuntimeError('Entry is not available for reading')
+		return self.__handle.read(length)
+	def write(self, s):
+		return self.__handle.write(s)
+	def fileno(self):
+		return self.__handle.fileno()
 
 
 if __name__ == '__main__':
@@ -176,5 +230,50 @@ if __name__ == '__main__':
 			self.assertIn(key, self.cache.entries)
 			self.assertIs(self.cache.entries[key], False)
 
-
+	class EntryTest(unittest.TestCase):
+		# Need to use r+b for reading because of LOCK_EX
+		FILE_TEXT = 'TEST FILE\n'.encode('ascii')
+		FILE_CHECKSUM = hashstring(FILE_TEXT, md5)
+		def setUp(self):
+			with NamedTemporaryFile(delete = False) as tmp:
+				self.path = tmp.name
+			self.timestamp = datetime.utcnow().replace(tzinfo = utc)
+		def tearDown(self):
+			remove(self.path)
+		def test_fresh(self):
+			entry = Entry(open(self.path, 'r+b'))
+			try:
+				self.assertFalse(entry.active)
+				self.assertIsNone(entry.header)
+			finally:
+				entry.close()
+		def test_create(self):
+			header = EntryHeader(len(self.FILE_TEXT), self.timestamp, self.FILE_CHECKSUM)
+			entry = Entry(open(self.path, 'w+b'))
+			try:
+				entry.header = header
+				self.assertTrue(entry.active)
+				self.assertIsNotNone(entry.header)
+				self.assertEqual(entry.header, header)
+				self.assertGreater(entry.write(self.FILE_TEXT), 0)
+				entry.seek(0)
+				self.assertEqual(entry.read(), self.FILE_TEXT)
+			finally:
+				entry.close()
+		def test_create_read(self):
+			header = EntryHeader(len(self.FILE_TEXT), self.timestamp, self.FILE_CHECKSUM)
+			entry = Entry(open(self.path, 'w+b'))
+			try:
+				entry.header = header
+				self.assertGreater(entry.write(self.FILE_TEXT), 0)
+			finally:
+				entry.close()
+			entry = Entry(open(self.path, 'r+b'))
+			try:
+				self.assertTrue(entry.active)
+				self.assertIsNotNone(entry.header)
+				self.assertEqual(entry.header, header)
+				self.assertEqual(entry.read(), self.FILE_TEXT)
+			finally:
+				entry.close()
 	unittest.main()
