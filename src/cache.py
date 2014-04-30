@@ -57,6 +57,22 @@ class EntryHeader(object):
 		return cls(size, timestamp, checksum)
 
 
+class EntryWrapper(object):
+	__slots__ = '__key', '__source', '__entry'
+	def __init__(self, key, source):
+		self.__key, self.__source = key, source
+		self.__entry = None
+	def __enter__(self):
+		if self.__key is None or self.__entry is not None:
+			raise RuntimeError
+		self.__entry = self.__source(self.__key)
+		self.__key = None
+		return self.__entry
+	def __exit__(self, type, value, tb):
+		self.__entry.close()
+		self.__entry = None
+
+
 if __name__ == '__main__':
 	import unittest
 	from os import remove, stat
@@ -129,5 +145,36 @@ if __name__ == '__main__':
 			self.assertEqual(self.timestamp, test2.timestamp)
 			self.assertTrue(timestamps_equivalent(self.timestamp, test2.timestamp))
 			self.assertEqual(self.FILE_CHECKSUM, test2.checksum)
+	
+	class EntryWrapperTest(unittest.TestCase):
+		class MockCache(object):
+			class Entry(object):
+				def __init__(self, key, close):
+					self.key, self.__close = key, close
+				def close(self):
+					self.__close(self.key)
+			def __init__(self):
+				self.entries = {}
+			def get_entry(self, key):
+				self.entries[key] = True
+				return self.Entry(key, self.close_entry)
+			def close_entry(self, key):
+				self.entries[key] = False
+			def __getitem__(self, key):
+				return EntryWrapper(key, self.get_entry)
+		def setUp(self):
+			self.cache = self.MockCache()
+		def tearDown(self):
+			pass
+		def test_basic(self):
+			key = 'TEST'
+			with self.cache[key] as entry:
+				self.assertEqual(entry.key, key)
+				self.assertGreater(len(self.cache.entries), 0)
+				self.assertIn(key, self.cache.entries)
+				self.assertIs(self.cache.entries[key], True)
+			self.assertIn(key, self.cache.entries)
+			self.assertIs(self.cache.entries[key], False)
+
 
 	unittest.main()
