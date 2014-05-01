@@ -11,6 +11,7 @@ import fcntl, os.path, stat, os
 from os import fstat, mkdir, fchmod, chmod, utime, remove
 from os.path import join as path_join, isdir, isfile, normpath, dirname, relpath
 from traceback import print_exc
+from collections import namedtuple
 
 
 
@@ -169,7 +170,6 @@ class FileLock(object):
 
 
 class Cache(object):
-	__slots__ = '__root', '__filter_function', '__checksum_function', '__source_root', '__lock',
 
 	allbits = stat.S_IRWXU|stat.S_IRWXG|stat.S_IRWXO
 
@@ -216,14 +216,18 @@ class Cache(object):
 				except OSError:
 					continue
 
-
-	def __init__(self, root, source_root, checksum_function, filter_function):
+	Options = namedtuple('Options', ['max_age', 'max_entries', 'auto_scrub'])
+	__slots__ = '__root', '__filter_function', '__checksum_function', '__source_root', '__lock', '__known_entry_count', '__options',
+	def __init__(self, root, source_root, checksum_function, filter_function, max_age = None, max_entries = None, auto_scrub = False):
 		self.__root = root
 		if not isdir(source_root):
 			raise ValueError('Not a directory: %s' % source_root)
 		self.__source_root = source_root
 		self.__checksum_function = checksum_function
 		self.__filter_function = filter_function
+		self.__known_entry_count = None
+		
+		# Create files
 		if not isdir(root):
 			mkdir(root)
 		info = os.stat(root)
@@ -231,6 +235,13 @@ class Cache(object):
 			chmod(self.__root, self.root_perms)
 		with open(self.lockfile, 'wb') as lockf:
 			self.fix_perms(lockf)
+
+		# Store options
+		if max_age is not None and not isinstance(max_age, timedelta):
+			max_age = timedelta(seconds = max_age)
+		self.__options = self.Options(max_age, max_entries, auto_scrub)
+
+		self.scrub()
 	def __get_entry(self, path):
 		path = normpath(path)
 		if any((part.startswith('.') for part in path.split(os.path.sep))):
@@ -243,10 +254,13 @@ class Cache(object):
 					cache_path = normpath(path_join(self.__root, path))
 					self.mkdir_p(self.__root, dirname(cache_path))
 					handle = None
+					update = False
 					try:
 						handle = open(cache_path, 'r+b')
+						update = True
 					except IOError:
 						handle = open(cache_path, 'w+b')
+						update = False
 					self.fix_perms(handle)
 					entry = Entry(handle)
 
@@ -256,6 +270,8 @@ class Cache(object):
 						entry.header = new_header
 						self.__filter_function(original.handle, entry)
 					entry.seek(0)
+					if not update:
+						self.__known_entry_count += 1
 					return entry
 			except IOError:
 				if entry is not None:
@@ -270,21 +286,39 @@ class Cache(object):
 	@property
 	def lockfile(self):
 		return path_join(self.__root, '.lock')
+	@property
+	def options(self):
+		return self.__options
+	def __len__(self):
+		"Only call this from outside of this class."
+		with FileLock(self.lockfile, FileLock.EXCLUSIVE):
+			return self.__known_entry_count
 	def scrub(self):
 		with FileLock(self.lockfile, FileLock.EXCLUSIVE):
+			entries = {}
+			cutoff = None
+			if self.options.max_age is not None:
+				cutoff = datetime.utcnow.replace(tzinfo = utc) - self.options.max_age
 			for fname in self.find_files(self.__root):
 				with filestuff.ExclusivelyLockedFile(fname) as entry:
-					original = path_join(self.__source_root, relpath(fname, self.__root))
+					relative = relpath(fname, self.__root)
+					# Make sure original still exists, deleting cache entry otherwise
+					original = path_join(self.__source_root, relative)
 					if not isfile(original):
 						remove(entry.name)
 						continue
 					timestamp = entry.modified
-					# if TTL configured: delete if timestamp is too old; continue
-					# if LRU configured: store timestamp
+					# Check age
+					if timstamp < cutoff:
+						remove(entry.name)
+						continue
+					# Count as entry if it is young enough
+					entries[relative] = timestamp
 
 			# TODO: Check timestamps when seeing if a file should be deleted in LRU mode
 			#     if they differ, skip that file
 			# Stop when enough files have been deleted
+
 			
 			for dname in self.find_dirs(self.__root):
 				try:
@@ -293,7 +327,7 @@ class Cache(object):
 					# Directory is not empty
 					continue
 
-
+			self.__known_entry_count = len(entries)
 
 if __name__ == '__main__':
 	import unittest
@@ -561,6 +595,7 @@ if __name__ == '__main__':
 				self.assertIsNotNone(data)
 				self.assertEqual('TOUCHED\nfoobar'.encode('ascii'), data)
 			self.assertEqual(self.count, 1)
+			self.assertEqual(len(self.cache), 1)
 		def test_subdir(self):
 			temporary = 'parent/test.txt'
 			test_string = 'foobar'
@@ -578,6 +613,7 @@ if __name__ == '__main__':
 				self.assertIsNotNone(data)
 				self.assertEqual('TOUCHED\nfoobar'.encode('ascii'), data)
 			self.assertEqual(self.count, 1)
+			self.assertEqual(len(self.cache), 1)
 		def test_update(self):
 			temporary = 'test.txt'
 			test_string = 'foobar'
@@ -587,6 +623,7 @@ if __name__ == '__main__':
 			with self.cache[temporary] as entry:
 				pass
 			self.assertEqual(self.count, 1)
+			self.assertEqual(len(self.cache), 1)
 
 			test_string = test_string * 2
 			with open(temporary_path, 'w', encoding = 'ascii') as tmp:
@@ -600,6 +637,7 @@ if __name__ == '__main__':
 				self.assertIsNotNone(data)
 				self.assertEqual('TOUCHED\nfoobarfoobar'.encode('ascii'), data)
 			self.assertEqual(self.count, 2)
+			self.assertEqual(len(self.cache), 1)
 		def test_removal(self):
 			temporary = 'test.txt'
 			test_string = 'foobar'
@@ -609,10 +647,11 @@ if __name__ == '__main__':
 			with self.cache[temporary] as entry:
 				pass
 			self.assertEqual(self.count, 1)
+			self.assertEqual(len(self.cache), 1)
 
 			remove(temporary_path)
 
-			self.assertRaises(KeyError, self.cache['invalid'].__enter__)
+			self.assertRaises(KeyError, self.cache[temporary].__enter__)
 			self.assertEqual(self.count, 1)
 
 			# As configured, this will only delete cache files without any original present
@@ -620,7 +659,7 @@ if __name__ == '__main__':
 			self.assertEqual(list(Cache.find_files(self.cachedir)), [])
 			self.assertEqual(list(Cache.find_dirs(self.cachedir)), [])
 
-			self.assertRaises(KeyError, self.cache['invalid'].__enter__)
+			self.assertRaises(KeyError, self.cache[temporary].__enter__)
 			self.assertEqual(self.count, 1)
 		def test_multiple_hit(self):
 			temporary = 'test.txt'
@@ -638,6 +677,7 @@ if __name__ == '__main__':
 				self.assertIsNotNone(data)
 				self.assertEqual('TOUCHED\nfoobar'.encode('ascii'), data)
 			self.assertEqual(self.count, 1)
+			self.assertEqual(len(self.cache), 1)
 
 			with self.cache[temporary] as entry:
 				self.assertEqual(header, entry.header)
@@ -645,4 +685,5 @@ if __name__ == '__main__':
 				self.assertIsNotNone(data)
 				self.assertEqual('TOUCHED\nfoobar'.encode('ascii'), data)
 			self.assertEqual(self.count, 1)
+			self.assertEqual(len(self.cache), 1)
 	unittest.main()
