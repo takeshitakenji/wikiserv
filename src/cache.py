@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pytz import utc
 import filestuff
 import fcntl, os.path, stat, os
-from os import fstat, mkdir, fchmod, chmod, utime
+from os import fstat, mkdir, fchmod, chmod, utime, remove
 from os.path import join as path_join, isdir, isfile, normpath, dirname, relpath
 from traceback import print_exc
 
@@ -193,12 +193,12 @@ class Cache(object):
 	@staticmethod
 	def find_dirs(root):
 		for path, dnames, fname in os.walk(root, topdown = False):
-			if any((d.startswith('.') for d in path.split(os.path.sep))):
+			if path == root:
 				continue
-			for dname in dnames:
-				if dname.startswith('.'):
-					continue
-				yield path_join(path, dname)
+			elif any((d.startswith('.') for d in path.split(os.path.sep))):
+				continue
+			else:
+				yield path
 	@staticmethod
 	def mkdir_p(root, name):
 		root_parts = root.split(os.path.sep)
@@ -270,6 +270,29 @@ class Cache(object):
 	@property
 	def lockfile(self):
 		return path_join(self.__root, '.lock')
+	def scrub(self):
+		with FileLock(self.lockfile, FileLock.EXCLUSIVE):
+			for fname in self.find_files(self.__root):
+				with filestuff.ExclusivelyLockedFile(fname) as entry:
+					original = path_join(self.__source_root, relpath(fname, self.__root))
+					if not isfile(original):
+						remove(entry.name)
+						continue
+					timestamp = entry.modified
+					# if TTL configured: delete if timestamp is too old; continue
+					# if LRU configured: store timestamp
+
+			# TODO: Check timestamps when seeing if a file should be deleted in LRU mode
+			#     if they differ, skip that file
+			# Stop when enough files have been deleted
+			
+			for dname in self.find_dirs(self.__root):
+				try:
+					rmdir(dname)
+				except OSError:
+					# Directory is not empty
+					continue
+
 
 
 if __name__ == '__main__':
@@ -588,6 +611,14 @@ if __name__ == '__main__':
 			self.assertEqual(self.count, 1)
 
 			remove(temporary_path)
+
+			self.assertRaises(KeyError, self.cache['invalid'].__enter__)
+			self.assertEqual(self.count, 1)
+
+			# As configured, this will only delete cache files without any original present
+			self.cache.scrub()
+			self.assertEqual(list(Cache.find_files(self.cachedir)), [])
+			self.assertEqual(list(Cache.find_dirs(self.cachedir)), [])
 
 			self.assertRaises(KeyError, self.cache['invalid'].__enter__)
 			self.assertEqual(self.count, 1)
