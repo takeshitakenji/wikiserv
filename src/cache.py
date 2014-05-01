@@ -239,13 +239,23 @@ class Cache(object):
 		# Store options
 		if max_age is not None and not isinstance(max_age, timedelta):
 			max_age = timedelta(seconds = max_age)
+		if max_entries is not None:
+			max_entries = int(max_entries)
+			if max_entries <= 0:
+				raise ValueError('Invalid number of maximum entries: %d' % max_entries)
+		auto_scrub = bool(auto_scrub)
 		self.__options = self.Options(max_age, max_entries, auto_scrub)
 
+		# Scrub to set up the structures for the first time
 		self.scrub()
 	def __get_entry(self, path):
 		path = normpath(path)
 		if any((part.startswith('.') for part in path.split(os.path.sep))):
 			raise ValueError('Path entries cannot start with "."')
+
+		if self.__options.auto_scrub and self.__options.max_entries is not None:
+			self.scrub(True)
+		
 		with FileLock(self.lockfile, FileLock.SHARED):
 			entry = None
 			try:
@@ -293,7 +303,14 @@ class Cache(object):
 		"Only call this from outside of this class."
 		with FileLock(self.lockfile, FileLock.EXCLUSIVE):
 			return self.__known_entry_count
-	def scrub(self):
+	def scrub(self, tentative = False):
+		if tentative and self.__options.max_entries is not None:
+			with FileLock(self.lockfile, FileLock.SHARED):
+				if self.__known_entry_count < self.__options.max_entries:
+					# This is < because when tentative == True, an entry
+					# may be inserted.
+					return False
+
 		with FileLock(self.lockfile, FileLock.EXCLUSIVE):
 			entries = {}
 			cutoff = None
@@ -328,6 +345,7 @@ class Cache(object):
 					continue
 
 			self.__known_entry_count = len(entries)
+			return True
 
 if __name__ == '__main__':
 	import unittest
