@@ -9,7 +9,8 @@ from pytz import utc
 import filestuff
 import fcntl, os.path, stat, os
 from os import fstat, mkdir, fchmod, chmod
-from os.path import join as path_join, isdir, isfile, normpath
+from os.path import join as path_join, isdir, isfile, normpath, dirname
+from traceback import print_exc
 
 
 
@@ -179,6 +180,32 @@ class Cache(object):
 		info = fstat(handle.fileno())
 		if (info.st_mode & cls.allbits) != cls.root_perms:
 			fchmod(handle.fileno(), cls.root_perms)
+	@staticmethod
+	def find_files(root):
+		for path, dnames, fnames in root:
+			filtered_dnames = [d for d in dnames if not d.startswith('.')]
+			del dname[:]
+			dnames.extend(filtered_dnames)
+			for fname in fnames:
+				if not fname.startswith('.'):
+					yield path_join(path, fname)
+	@staticmethod
+	def mkdir_p(root, name):
+		root_parts = root.split(os.path.sep)
+		parts = name.split(os.path.sep)
+		for i in range(len(parts)):
+			if i < len(root_parts):
+				if root_parts[i] != parts[i]:
+					raise ValueError('name is not under root')
+			else:
+				try:
+					path = os.path.join(*parts[:i + 1])
+					if parts[0] == '':
+						path = '/' + path
+					mkdir(path)
+				except OSError:
+					continue
+
 
 	def __init__(self, root, source_root, checksum_function, filter_function):
 		self.__root = root
@@ -204,6 +231,7 @@ class Cache(object):
 				original_path = normpath(path_join(self.__source_root, path))
 				with filestuff.LockedFile(original_path) as original:
 					cache_path = normpath(path_join(self.__root, path))
+					self.mkdir_p(self.__root, dirname(cache_path))
 					handle = None
 					try:
 						handle = open(cache_path, 'r+b')
@@ -443,6 +471,23 @@ if __name__ == '__main__':
 			temporary = 'test.txt'
 			test_string = 'foobar'
 			temporary_path = path_join(self.tmpdir, temporary)
+			with open(temporary_path, 'w', encoding = 'ascii') as tmp:
+				tmp.write(test_string)
+			self.assertTrue(isfile(temporary_path))
+			with filestuff.File(temporary_path) as info:
+				header = EntryHeader(info.size, info.modified, info.checksum(md5))
+
+			with self.cache[temporary] as entry:
+				self.assertEqual(header, entry.header)
+				data = entry.read()
+				self.assertIsNotNone(data)
+				self.assertEqual('TOUCHED\nfoobar'.encode('ascii'), data)
+			self.assertEqual(self.count, 1)
+		def test_subdir(self):
+			temporary = 'parent/test.txt'
+			test_string = 'foobar'
+			temporary_path = path_join(self.tmpdir, temporary)
+			mkdir(dirname(temporary_path))
 			with open(temporary_path, 'w', encoding = 'ascii') as tmp:
 				tmp.write(test_string)
 			self.assertTrue(isfile(temporary_path))
