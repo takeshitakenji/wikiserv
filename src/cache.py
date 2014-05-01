@@ -9,7 +9,7 @@ from pytz import utc
 import filestuff
 import fcntl, os.path, stat, os
 from os import fstat, mkdir, fchmod, chmod
-from os.path import join as path_join, isdir, isfile, normpath, dirname
+from os.path import join as path_join, isdir, isfile, normpath, dirname, relpath
 from traceback import print_exc
 
 
@@ -182,13 +182,22 @@ class Cache(object):
 			fchmod(handle.fileno(), cls.root_perms)
 	@staticmethod
 	def find_files(root):
-		for path, dnames, fnames in root:
+		for path, dnames, fnames in os.walk(root):
 			filtered_dnames = [d for d in dnames if not d.startswith('.')]
-			del dname[:]
+			del dnames[:]
 			dnames.extend(filtered_dnames)
 			for fname in fnames:
 				if not fname.startswith('.'):
 					yield path_join(path, fname)
+	@staticmethod
+	def find_dirs(root):
+		for path, dnames, fname in os.walk(root, topdown = False):
+			if any((d.startswith('.') for d in path.split(os.path.sep))):
+				continue
+			for dname in dnames:
+				if dname.startswith('.'):
+					continue
+				yield path_join(path, dname)
 	@staticmethod
 	def mkdir_p(root, name):
 		root_parts = root.split(os.path.sep)
@@ -444,6 +453,51 @@ if __name__ == '__main__':
 				self.assertEqual(entry.read(), self.FILE_TEXT2)
 			finally:
 				entry.close()
+	
+	class FindTest(unittest.TestCase):
+		def setUp(self):
+			self.tmpdir = mkdtemp()
+
+			good_root = path_join(self.tmpdir, 'good')
+			mkdir(good_root)
+
+			good_sub = path_join(good_root, 'subgood')
+			mkdir(good_sub)
+
+			good_good_file = path_join(good_root, 'good.txt')
+			with open(good_good_file, 'w') as f:
+				print('good', file = f)
+			good_bad_file = path_join(good_root, '.bad.txt')
+			with open(good_bad_file, 'w') as f:
+				print('bad', file = f)
+
+			bad_root = path_join(self.tmpdir, '.bad')
+			mkdir(bad_root)
+
+			bad_sub = path_join(bad_root, 'subbad')
+			mkdir(bad_sub)
+
+			bad_sub = path_join(bad_root, '.subbad')
+			mkdir(bad_sub)
+
+			bad_sub = path_join(bad_sub, 'subbad2')
+			mkdir(bad_sub)
+
+			bad_good_file = path_join(bad_root, 'good.txt')
+			with open(bad_good_file, 'w') as f:
+				print('_good', file = f)
+			bad_bad_file = path_join(bad_root, '.bad.txt')
+			with open(bad_bad_file, 'w') as f:
+				print('_bad', file = f)
+		def tearDown(self):
+			rmtree(self.tmpdir)
+		def test_find_files(self):
+			files = [relpath(x, self.tmpdir) for x in Cache.find_files(self.tmpdir)]
+			self.assertEqual(files, ['good/good.txt'])
+		def test_find_dirs(self):
+			dirs = [relpath(x, self.tmpdir) for x in Cache.find_dirs(self.tmpdir)]
+			self.assertEqual(dirs, ['good/subgood', 'good'])
+
 	
 	class CacheTest(unittest.TestCase):
 		def process(self, inf, outf):
