@@ -249,13 +249,15 @@ class Cache(object):
 
 		# Scrub to set up the structures for the first time
 		self.scrub()
+	def do_scrub(self, tentative = False):
+		return self.scrub()
 	def __get_entry(self, path):
 		path = normpath(path)
 		if any((part.startswith('.') for part in path.split(os.path.sep))):
 			raise ValueError('Path entries cannot start with "."')
 
 		if self.__options.auto_scrub and self.__options.max_entries is not None:
-			self.scrub(True)
+			self.do_scrub(True)
 		
 		with FileLock(self.lockfile, FileLock.SHARED):
 			entry = None
@@ -333,7 +335,7 @@ class Cache(object):
 					# Count as entry if it is young enough
 					entries.append((fname, timestamp))
 
-			# TODO: Check timestamps when seeing if a file should be deleted in LRU mode
+			# Check timestamps when seeing if a file should be deleted in LRU mode
 			#     if they differ, skip that file
 			# Stop when enough files have been deleted
 			ecount = len(entries)
