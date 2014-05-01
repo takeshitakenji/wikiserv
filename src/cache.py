@@ -312,7 +312,7 @@ class Cache(object):
 					return False
 
 		with FileLock(self.lockfile, FileLock.EXCLUSIVE):
-			entries = {}
+			entries = []
 			cutoff = None
 			if self.options.max_age is not None:
 				cutoff = datetime.utcnow().replace(tzinfo = utc) - self.options.max_age
@@ -330,7 +330,7 @@ class Cache(object):
 						remove(entry.name)
 						continue
 					# Count as entry if it is young enough
-					entries[relative] = timestamp
+					entries.append((fname, timestamp))
 
 			# TODO: Check timestamps when seeing if a file should be deleted in LRU mode
 			#     if they differ, skip that file
