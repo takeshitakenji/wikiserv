@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pytz import utc
 import filestuff
 import fcntl, os.path, stat, os
-from os import fstat, mkdir, fchmod, chmod
+from os import fstat, mkdir, fchmod, chmod, utime
 from os.path import join as path_join, isdir, isfile, normpath, dirname, relpath
 from traceback import print_exc
 
@@ -103,6 +103,7 @@ class Entry(object):
 		self.__payload_start = self.__handle.tell() if self.__active else None
 	def close(self):
 		if self.__handle is not None:
+			utime(self.__handle.fileno())
 			fcntl.lockf(self.__handle, fcntl.LOCK_EX)
 			self.__handle.close()
 			self.__handle = None
