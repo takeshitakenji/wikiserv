@@ -298,7 +298,7 @@ class Cache(object):
 			entries = {}
 			cutoff = None
 			if self.options.max_age is not None:
-				cutoff = datetime.utcnow.replace(tzinfo = utc) - self.options.max_age
+				cutoff = datetime.utcnow().replace(tzinfo = utc) - self.options.max_age
 			for fname in self.find_files(self.__root):
 				with filestuff.ExclusivelyLockedFile(fname) as entry:
 					relative = relpath(fname, self.__root)
@@ -309,7 +309,7 @@ class Cache(object):
 						continue
 					timestamp = entry.modified
 					# Check age
-					if timstamp < cutoff:
+					if timestamp < cutoff:
 						remove(entry.name)
 						continue
 					# Count as entry if it is young enough
@@ -337,6 +337,7 @@ if __name__ == '__main__':
 	from codecs import getreader, getwriter
 	from shutil import copyfileobj, rmtree
 	from traceback import print_stack
+	from time import sleep
 
 	def hashstring(s, cksum_type):
 		hasher = cksum_type()
@@ -685,5 +686,48 @@ if __name__ == '__main__':
 				self.assertIsNotNone(data)
 				self.assertEqual('TOUCHED\nfoobar'.encode('ascii'), data)
 			self.assertEqual(self.count, 1)
+			self.assertEqual(len(self.cache), 1)
+	class CacheTest(unittest.TestCase):
+		def process(self, inf, outf):
+			print('PROCESS(INF=%s, OUTF=%s)' % (inf.name, outf.name))
+			self.count += 1
+			outf.write('TOUCHED\n'.encode('ascii'))
+			copyfileobj(inf, outf)
+		def setUp(self):
+			self.tmpdir = mkdtemp()
+			self.cachedir = mkdtemp()
+			self.count = 0
+			self.cache = Cache(self.cachedir, self.tmpdir, md5, self.process, max_age = timedelta(seconds = 1))
+		def tearDown(self):
+			self.cache = None
+			rmtree(self.cachedir)
+			rmtree(self.tmpdir)
+		def test_expiration(self):
+			temporary = 'test.txt'
+			test_string = 'foobar'
+			temporary_path = path_join(self.tmpdir, temporary)
+			with open(temporary_path, 'w', encoding = 'ascii') as tmp:
+				tmp.write(test_string)
+			self.assertTrue(isfile(temporary_path))
+			with filestuff.File(temporary_path) as info:
+				header = EntryHeader(info.size, info.modified, info.checksum(md5))
+
+			with self.cache[temporary] as entry:
+				self.assertEqual(header, entry.header)
+				data = entry.read()
+				self.assertIsNotNone(data)
+				self.assertEqual('TOUCHED\nfoobar'.encode('ascii'), data)
+			self.assertEqual(self.count, 1)
+			self.assertEqual(len(self.cache), 1)
+
+			sleep(3)
+			self.cache.scrub()
+
+			with self.cache[temporary] as entry:
+				self.assertEqual(header, entry.header)
+				data = entry.read()
+				self.assertIsNotNone(data)
+				self.assertEqual('TOUCHED\nfoobar'.encode('ascii'), data)
+			self.assertEqual(self.count, 2)
 			self.assertEqual(len(self.cache), 1)
 	unittest.main()
