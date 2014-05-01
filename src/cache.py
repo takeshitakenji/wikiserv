@@ -184,29 +184,32 @@ class Cache(object):
 		if any((part.startswith('.') for part in path.split(os.path.sep))):
 			raise ValueError('Path entries cannot start with "."')
 		with FileLock(self.lockfile, FileLock.SHARED):
-			cache_path = normpath(path_join(self.__root, path))
-			handle = None
+			entry = None
 			try:
-				handle = open(cache_path, 'r+b')
-			except IOError:
-				handle = open(cache_path, 'w+b')
-			entry = Entry(handle)
-
-			original_path = normpath(path_join(self.__source_root, path))
-			try:
+				original_path = normpath(path_join(self.__source_root, path))
 				with filestuff.LockedFile(original_path) as original:
+					cache_path = normpath(path_join(self.__root, path))
+					handle = None
+					try:
+						handle = open(cache_path, 'r+b')
+					except IOError:
+						handle = open(cache_path, 'w+b')
+					entry = Entry(handle)
+
 					header = entry.header
 					new_header = EntryHeader(original.size, original.modified, original.checksum(self.__checksum_function))
 					if header != new_header:
 						entry.header = new_header
 						self.__filter_function(original.handle, entry)
 					entry.seek(0)
-				return entry
+					return entry
 			except IOError:
-				entry.close()
+				if entry is not None:
+					entry.close()
 				raise KeyError(path)
 			except:
-				entry.close()
+				if entry is not None:
+					entry.close()
 				raise
 	def __getitem__(self, path):
 		return EntryWrapper(path, self.__get_entry)
@@ -415,6 +418,11 @@ if __name__ == '__main__':
 			rmtree(self.tmpdir)
 		def test_exists(self):
 			self.assertTrue(isfile(self.cache.lockfile))
+		def test_invalid_file(self):
+			self.assertRaises(KeyError, self.cache['invalid'].__enter__)
+			self.assertEqual(self.count, 0)
+			self.assertRaises(KeyError, self.cache['invalid'].__enter__)
+			self.assertEqual(self.count, 0)
 		def test_initial_miss(self):
 			temporary = 'test.txt'
 			test_string = 'foobar'
