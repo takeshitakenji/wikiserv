@@ -249,7 +249,7 @@ class Cache(object):
 
 		# Scrub to set up the structures for the first time
 		self.scrub()
-	def do_scrub(self, tentative = False):
+	def schedule_scrub(self, tentative = False):
 		return self.scrub()
 	def __get_entry(self, path):
 		path = normpath(path)
@@ -257,7 +257,7 @@ class Cache(object):
 			raise ValueError('Path entries cannot start with "."')
 
 		if self.__options.auto_scrub and self.__options.max_entries is not None:
-			self.do_scrub(True)
+			self.schedule_scrub(True)
 		
 		with FileLock(self.lockfile, FileLock.SHARED):
 			entry = None
