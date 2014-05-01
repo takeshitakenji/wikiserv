@@ -12,6 +12,7 @@ from os import fstat, mkdir, fchmod, chmod, utime, remove
 from os.path import join as path_join, isdir, isfile, normpath, dirname, relpath
 from traceback import print_exc
 from collections import namedtuple
+from queue import Queue, Empty
 
 
 
@@ -335,6 +336,24 @@ class Cache(object):
 			# TODO: Check timestamps when seeing if a file should be deleted in LRU mode
 			#     if they differ, skip that file
 			# Stop when enough files have been deleted
+			ecount = len(entries)
+			if self.__options.max_entries is not None and ecount >= self.__options.max_entries:
+				equeue = queue()
+				for entry in sorted(entries, key = lambda x: x[1]):
+					equeue.put(entry)
+				removed = 0
+
+				try:
+					while ecount - removed >= self.__options.max_entries:
+						with filestuff.ExclusivelyLockedFile(fname) as entry:
+							fname, timestamp = queue.get(False)
+							if entry.timestamp > timestamp:
+								equeue.put((fname, timestamp))
+							else:
+								remove(fname)
+							equeue.task_done()
+				except Empty:
+					pass
 
 			
 			for dname in self.find_dirs(self.__root):
