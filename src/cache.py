@@ -241,7 +241,7 @@ class Cache(object):
 			max_age = timedelta(seconds = max_age)
 		if max_entries is not None:
 			max_entries = int(max_entries)
-			if max_entries <= 0:
+			if max_entries < 2:
 				raise ValueError('Invalid number of maximum entries: %d' % max_entries)
 		auto_scrub = bool(auto_scrub)
 		self.__options = self.Options(max_age, max_entries, auto_scrub)
