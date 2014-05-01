@@ -7,8 +7,8 @@ import struct
 from datetime import datetime, timedelta
 from pytz import utc
 import filestuff
-import fcntl, os.path
-from os import fstat, mkdir
+import fcntl, os.path, stat, os
+from os import fstat, mkdir, fchmod, chmod
 from os.path import join as path_join, isdir, isfile, normpath
 
 
@@ -168,6 +168,18 @@ class FileLock(object):
 
 class Cache(object):
 	__slots__ = '__root', '__filter_function', '__checksum_function', '__source_root', '__lock',
+
+	allbits = stat.S_IRWXU|stat.S_IRWXG|stat.S_IRWXO
+
+	root_perms = stat.S_IRUSR|stat.S_IWUSR|stat.S_IXUSR
+	file_perms = stat.S_IRUSR|stat.S_IWUSR
+
+	@classmethod
+	def fix_perms(cls, handle):
+		info = fstat(handle.fileno())
+		if (info.st_mode & cls.allbits) != cls.root_perms:
+			fchmod(handle.fileno(), cls.root_perms)
+
 	def __init__(self, root, source_root, checksum_function, filter_function):
 		self.__root = root
 		if not isdir(source_root):
@@ -177,8 +189,11 @@ class Cache(object):
 		self.__filter_function = filter_function
 		if not isdir(root):
 			mkdir(root)
-		with open(self.lockfile, 'wb'):
-			pass
+		info = os.stat(root)
+		if (info.st_mode & self.allbits) != self.root_perms:
+			chmod(self.__root, self.root_perms)
+		with open(self.lockfile, 'wb') as lockf:
+			self.fix_perms(lockf)
 	def __get_entry(self, path):
 		path = normpath(path)
 		if any((part.startswith('.') for part in path.split(os.path.sep))):
@@ -194,6 +209,7 @@ class Cache(object):
 						handle = open(cache_path, 'r+b')
 					except IOError:
 						handle = open(cache_path, 'w+b')
+					self.fix_perms(handle)
 					entry = Entry(handle)
 
 					header = entry.header
@@ -461,6 +477,20 @@ if __name__ == '__main__':
 				self.assertIsNotNone(data)
 				self.assertEqual('TOUCHED\nfoobarfoobar'.encode('ascii'), data)
 			self.assertEqual(self.count, 2)
+		def test_removal(self):
+			temporary = 'test.txt'
+			test_string = 'foobar'
+			temporary_path = path_join(self.tmpdir, temporary)
+			with open(temporary_path, 'w', encoding = 'ascii') as tmp:
+				tmp.write(test_string)
+			with self.cache[temporary] as entry:
+				pass
+			self.assertEqual(self.count, 1)
+
+			remove(temporary_path)
+
+			self.assertRaises(KeyError, self.cache['invalid'].__enter__)
+			self.assertEqual(self.count, 1)
 		def test_multiple_hit(self):
 			temporary = 'test.txt'
 			test_string = 'foobar'
