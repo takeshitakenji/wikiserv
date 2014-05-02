@@ -8,7 +8,7 @@ import struct, platform, os, stat
 from collections import namedtuple
 from os.path import pathsep, join as path_join, normpath, isfile, basename
 import logging
-from subprocess import Popen, CalledProcessError
+from subprocess import Popen, CalledProcessError, PIPE
 
 
 LOGGER = logging.getLogger(__name__)
@@ -73,6 +73,7 @@ else:
 
 class Processor(object):
 	processors = {}
+	BLOCK_READ = 0xFFFF
 	NAME = NotImplemented
 	MIME = NotImplemented
 
@@ -92,10 +93,15 @@ class Processor(object):
 	def get_processor(cls, name):
 		return cls.processors[name]
 
-	@staticmethod
-	def call_process(args, inf, outf):
-		p = subprocess(args, stdin = inf, stdout = outf)
+	@classmethod
+	def call_process(cls, args, inf, outf):
+		p = Popen(args, stdin = inf, stdout = PIPE)
 		try:
+			data = p.stdout.read(cls.BLOCK_READ)
+			while data:
+				outf.write(data)
+				data = p.stdout.read(cls.BLOCK_READ)
+			p.stdout.close()
 			p.wait()
 		except:
 			p.terminate()
@@ -147,10 +153,10 @@ try:
 		BACKEND = NotImplemented
 		ATTRIBUTES = []
 		def process(self, inf, outf):
-			if BACKEND is NotImplemented:
+			if self.BACKEND is NotImplemented:
 				raise NotImplementedError
-			args = ['asciidoc', '-b', self.BACKEND, '-a', 'encoding=%s' % self.encoding]
-			for attr in ATTRIBUTES:
+			args = ['asciidoc', '-b', self.BACKEND, '-a', 'encoding=%s' % self.header.encoding]
+			for attr in self.ATTRIBUTES:
 				args += ['-a', attr]
 			args.append('-')
 			self.call_process(args, inf, outf)
@@ -189,6 +195,7 @@ if __name__ == '__main__':
 	import unittest
 	from tempfile import NamedTemporaryFile
 	from os import remove
+	from lxml import etree
 
 	logging.basicConfig(level = logging.DEBUG)
 	class TestPath(unittest.TestCase):
@@ -234,10 +241,42 @@ if __name__ == '__main__':
 				remove(name)
 	if 'AsciidocXHTMLProcessor' in vars():
 		class TestAsciidoc(unittest.TestCase):
+			DOCUMENT = \
+"""Main Header
+===========
+Optional Author Name <optional@author.email>
+Optional version, optional date
+:Author:    AlternativeWayToSetOptional Author Name
+:Email:     <AlternativeWayToSetOptional@author.email>
+:Date:      AlternativeWayToSetOptional date
+:Revision:  AlternativeWayToSetOptional version"""
 			def setUp(self):
-				pass
+				with NamedTemporaryFile('wb', delete = False) as f:
+					self.inf = f.name
+					document = self.DOCUMENT.encode('utf8')
+					f.write(document)
+				with NamedTemporaryFile(delete = False) as f:
+					self.outf = f.name
 			def tearDown(self):
-				pass
+				remove(self.inf)
+				remove(self.outf)
 			def test_asciidoc(self):
-				print('TODO')
+				proctype = get_processor('asciidoc-xhtml11')
+				proc = proctype('utf8')
+				with open(self.outf, 'w+b') as outf:
+					with open(self.inf, 'rb') as inf:
+						proc(inf, outf)
+					outf.seek(0)
+					header = proctype.read_header(outf)
+					self.assertEqual(header, proc.header)
+					# XHTML is XML, so this should work
+					document = etree.parse(outf)
+					info = document.docinfo
+					self.assertEqual(info.public_id.strip(), '-//W3C//DTD XHTML 1.1//EN')
+					self.assertEqual(info.system_url, 'http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd')
+					self.assertEqual(info.encoding, 'UTF-8')
+					self.assertEqual(info.root_name, 'html')
+
+					root = document.getroot()
+					self.assertEqual(root.nsmap[None], 'http://www.w3.org/1999/xhtml')
 	unittest.main()

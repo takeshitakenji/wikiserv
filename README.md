@@ -18,7 +18,8 @@ Requirements
 1. Python 3 (3.3 or newer)
 2. [pytz](http://pytz.sourceforge.net/)
 3. [python-dateutil](http://labix.org/python-dateutil)
-4. An OS that supports the built-in [fcntl](http://docs.python.org/3.3/library/fcntl.html) module
+4. [lxml](http://lxml.de/) (for running test suite)
+5. An OS that supports the built-in [fcntl](http://docs.python.org/3.3/library/fcntl.html) module
 
 Design
 ------
