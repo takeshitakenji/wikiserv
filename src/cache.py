@@ -311,6 +311,7 @@ class Cache(object):
 				raise KeyError(path)
 			except:
 				if entry is not None:
+					remove(entry.name)
 					entry.close()
 				raise
 	def __getitem__(self, path):

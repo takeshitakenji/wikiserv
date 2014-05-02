@@ -110,20 +110,28 @@ class Processor(object):
 				raise CalledProcessError('%s exited with %s' % (args[0], p.returncode))
 	
 	def __init__(self, encoding):
-		if len(self.MIME) > 0xFF:
-			raise ValueError('MIME type is too long: %s' % self.MIME)
-		if len(encoding) > 0xFF:
+		if len(self.mime_type) > 0xFF:
+			raise ValueError('MIME type is too long: %s' % self.mime_type)
+		if encoding is not None and len(encoding) > 0xFF:
 			raise ValueError('Character encoding is too long: %s' % self.encoding)
 		# Verify they are ASCII
-		self.MIME.encode('ascii')
-		encoding.encode('ascii')
-		b''.decode(encoding)
+		self.mime_type.encode('ascii')
+		if encoding is not None:
+			encoding.encode('ascii')
+			b''.decode(encoding)
 		
-		self.header = self.Header(encoding, self.MIME)
+		self.header = self.Header(encoding, self.mime_type)
+	@property
+	def mime_type(self):
+		return self.MIME
 	def write_header(self, stream):
-		encoding = self.header.encoding.encode('ascii')
-		count = stream.write(struct.pack(self.length_format, len(encoding)))
-		count += stream.write(encoding)
+		count = 0
+		if self.header.encoding is not None:
+			encoding = self.header.encoding.encode('ascii')
+			count += stream.write(struct.pack(self.length_format, len(encoding)))
+			count += stream.write(encoding)
+		else:
+			count += stream.write(struct.pack(self.length_format, 0))
 
 		mime = self.header.mime.encode('ascii')
 		count += stream.write(struct.pack(self.length_format, len(mime)))
@@ -132,7 +140,9 @@ class Processor(object):
 	@classmethod
 	def read_header(cls, stream):
 		length, = struct.unpack(cls.length_format, stream.read(cls.length_length))
-		encoding = stream.read(length).decode('ascii')
+		encoding = None
+		if length > 0:
+			encoding = stream.read(length).decode('ascii')
 
 		length, = struct.unpack(cls.length_format, stream.read(cls.length_length))
 		mime = stream.read(length).decode('ascii')
@@ -143,6 +153,20 @@ class Processor(object):
 	def __call__(self, inf, outf):
 		self.write_header(outf)
 		return self.process(inf, outf)
+
+
+class RawProcessor(Processor):
+	NAME = 'raw'
+	MIME = None
+	def __init__(self, mime, encoding):
+		self.mime = mime
+		Processor.__init__(self, None)
+	def process(self, inf, outf):
+		copyfileobj(inf, outf)
+	@property
+	def mime_type(self):
+		return self.mime
+RawProcessor.register()
 
 
 try:

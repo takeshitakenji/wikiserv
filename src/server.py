@@ -210,8 +210,11 @@ class WikiHandler(tornado.web.RequestHandler):
 		self.set_header('Last-Modified', format_datetime(entry.header.timestamp))
 		self.set_header('Cache-Control', 'Public')
 		content_header = processors.Processor.read_header(entry)
-		self.set_header('Content-Type', '%s; charset=%s' % (content_header.mime, content_header.encoding))
-		if prev_mtime is not None and entry.modified <= prev_mtime:
+		if content_header.encoding:
+			self.set_header('Content-Type', '%s; charset=%s' % (content_header.mime, content_header.encoding))
+		else:
+			self.set_header('Content-Type', content_header.mime)
+		if prev_mtime is not None and entry.header.timestamp <= prev_mtime:
 			LOGGER.debug('Returning 304 from modification time')
 			self.set_status(304)
 			return False
@@ -224,21 +227,21 @@ class WikiHandler(tornado.web.RequestHandler):
 		LOGGER.debug('HEAD %s' % path)
 		try:
 			wrap = Server.get_instance().cache[path]
+			with wrap as entry:
+				self.check_fill_headers(entry)
 		except KeyError:
 			raise tornado.web.HTTPError(404)
-		with wrap as entry:
-			self.check_fill_headers(entry)
 	def get(self, path):
 		LOGGER.debug('GET %s' % path)
 		try:
 			wrap = Server.get_instance().cache[path]
+			with wrap as entry:
+				if not self.check_fill_headers(entry):
+					return
+				LOGGER.debug('Returning data')
+				copyfileobj(entry, self)
 		except KeyError:
 			raise tornado.web.HTTPError(404)
-		with wrap as entry:
-			if not self.check_fill_headers(entry):
-				return
-			LOGGER.debug('Returning data')
-			copyfileobj(entry, self)
 
 
 class SkipHandler(tornado.web.RequestHandler):
@@ -264,9 +267,7 @@ if __name__ == '__main__':
 
 	cfg = None
 	with open(args.configuration, 'rb') as f:
-		cfg = config.Configuration(f)
-
-	logging.basicConfig(level = cfg.log_level)
+		cfg = config.Configuration(f, setlog = True)
 
 	Server.set_instance(cfg)
 	try:

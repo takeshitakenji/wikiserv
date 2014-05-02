@@ -23,13 +23,15 @@ class Configuration(object):
 		if not matches:
 			raise KeyError('Missing element: %s' % xpath)
 		return matches[0]
-	def __init__(self, stream):
+	def __init__(self, stream, setlog = False):
 		document = etree.parse(stream)
 		try:
 			log_level = self.xpath_single(document, '/configuration/log-level/text()').strip().upper()
 			self.log_level = getattr(logging, log_level)
 		except (KeyError, AttributeError):
 			self.log_level = logging.ERROR
+		if setlog:
+			logging.basicConfig(level = self.log_level)
 		self.cache_dir = self.xpath_single(document, '/configuration/cache/cache-dir/text()').strip()
 		self.source_dir = self.xpath_single(document, '/configuration/cache/source-dir/text()').strip()
 		self.checksum_function = hashers.get_hasher( \
@@ -62,13 +64,30 @@ class Configuration(object):
 			except KeyError:
 				pass
 
-			if name not in procs:
-				procs[name] = processors.get_processor(name)(self.encoding)
+			mime = None
+			try:
+				mime = child.attrib['mime-type'].strip()
+			except KeyError:
+				pass
+
+			proc = None
+			if (name, mime) not in procs:
+				if mime is not None:
+					try:
+						proc = processors.get_processor(name)(mime, self.encoding)
+					except TypeError:
+						LOGGER.warning('Processor %s does not support MIME assignment' % name)
+						mime = none
+				if proc is None:
+					proc = processors.get_processor(name)(self.encoding)
+
+				procs[name, mime] = proc
 			if extensions:
 				for extension in extensions:
-					self.processors[extension] = procs[name]
+					self.processors[extension] = proc
 			else:
-				self.processors[None] = procs[name]
+				self.processors[None] = proc
+		LOGGER.debug('Resulting procs: %s' % procs)
 		if None not in self.processors:
 			LOGGER.warning('There is no processor defined for unspecified file extensions.')
 	@property
