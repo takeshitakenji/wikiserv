@@ -19,7 +19,37 @@ Requirements
 2. [pytz](http://pytz.sourceforge.net/)
 3. [python-dateutil](http://labix.org/python-dateutil)
 4. [lxml](http://lxml.de/)
-5. An OS that supports the built-in [fcntl](http://docs.python.org/3.3/library/fcntl.html) module
+5. [tornado](http://www.tornadoweb.org/)
+6. An OS that supports the built-in [fcntl](http://docs.python.org/3.3/library/fcntl.html) module
+
+Configuration
+-------------
+
+
+```xml
+<?xml version="1.0" ?>
+
+<configuration>
+	<log-level>DEBUG</log-level><!-- Passed to logging module -->
+	<cache>
+		<cache-dir>testdata/test_cache</cache-dir><!-- Root of cache directory -->
+		<source-dir>testdata/test_root</source-dir><!-- Root of directory containing files which will be procesed and served -->
+		<checksum-function>sha1</checksum-function><!-- Checksum algorithm used on the files to be processed to determine cache state -->
+		<max-age>86400</max-age><!-- OPTIONAL: Whenever a scrub is performed, delete files that are older than this age (seconds) -->
+		<max-entries>2048</max-entries><!-- OPTIONAL: Use an LRU algorithm to limit the approximate maximum number of entries in the cache -->
+		<auto-scrub /><!-- OPTIONAL: When the LRU algorithm hits the maximum number of entries, automatically scrub the cache to clear up free slots -->
+		<dispatcher-threar /><!-- OPTIONAL: Use the DispatcherCache class instead, which will perform automatic scrubbing in a separate thread -->
+		<send-etags /><!-- OPTIONAL: Send Etags based on checksum algorithm -->
+	</cache>
+	<processors>
+		<encoding>utf8</encoding><!-- Output encoding passed to all the processors -->
+		<processor>asciidoc-xhtml11</processor><!-- Sets the default processor used to convert files to HTML -->
+		<processor extensions="txt foo">asciidoc-xhtml11</processor><!-- For the extensions txt and foo, use this processor to convert -->
+		<processor extensions="bar">asciidoc-html5</processor><!-- For the extensions bar, used asciidoc-html5 instead -->
+	</processors>
+</configuration>
+```
+
 
 Design
 ------
