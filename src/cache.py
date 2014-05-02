@@ -13,7 +13,10 @@ from os.path import join as path_join, isdir, isfile, normpath, dirname, relpath
 from traceback import print_exc
 from collections import namedtuple
 from queue import Queue, Empty
+import logging
 
+
+LOGGER = logging.getLogger(__name__)
 
 
 def timestamps_equivalent(t1, t2, tolerance = 0.001):
@@ -249,6 +252,8 @@ class Cache(object):
 
 		# Scrub to set up the structures for the first time
 		self.scrub()
+	def __str__(self):
+		return 'Cache at %s mirroring original %s' % (self.__root, self.__source_root)
 	def schedule_scrub(self, tentative = False):
 		return self.scrub()
 	def __get_entry(self, path):
@@ -260,19 +265,23 @@ class Cache(object):
 			self.schedule_scrub(True)
 		
 		with FileLock(self.lockfile, FileLock.SHARED):
+			LOGGER.debug('Got original at %s' % path)
 			entry = None
 			try:
 				original_path = normpath(path_join(self.__source_root, path))
 				with filestuff.LockedFile(original_path) as original:
+					LOGGER.debug('Opening entry at %s' % path)
 					cache_path = normpath(path_join(self.__root, path))
 					self.mkdir_p(self.__root, dirname(cache_path))
 					handle = None
 					update = False
 					try:
 						handle = open(cache_path, 'r+b')
+						LOGGER.debug('Entry exists at %s' % path)
 						update = True
 					except IOError:
 						handle = open(cache_path, 'w+b')
+						LOGGER.debug('Entry does not at %s' % path)
 						update = False
 					self.fix_perms(handle)
 					entry = Entry(handle)
@@ -280,10 +289,12 @@ class Cache(object):
 					header = entry.header
 					new_header = EntryHeader(original.size, original.modified, original.checksum(self.__checksum_function))
 					if header != new_header:
+						LOGGER.debug('Calling processor for %s' % path)
 						entry.header = new_header
 						self.__filter_function(original.handle, entry)
 					entry.seek(0)
 					if not update:
+						LOGGER.debug('Adding new entry for %s' % path)
 						self.__known_entry_count += 1
 					return entry
 			except IOError:
@@ -307,6 +318,7 @@ class Cache(object):
 		with FileLock(self.lockfile, FileLock.EXCLUSIVE):
 			return self.__known_entry_count
 	def scrub(self, tentative = False):
+		LOGGER.debug('Scrubbing cache %s' % self)
 		if tentative and self.__options.max_entries is not None:
 			with FileLock(self.lockfile, FileLock.SHARED):
 				if self.__known_entry_count < self.__options.max_entries:

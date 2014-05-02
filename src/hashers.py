@@ -5,6 +5,10 @@ if sys.version_info < (3, 3):
 import hashlib, functools
 from zlib import adler32, crc32
 import struct
+import logging
+
+
+LOGGER = logging.getLogger(__name__)
 
 STEP = 4096
 
@@ -37,10 +41,12 @@ ALGORITHMS[CRC32.name] = CRC32
 
 def available_hashers():
 	global ALGORITHMS
+	LOGGER.debug('Getting available hashers')
 	return frozenset(ALGORITHMS.keys())
 def get_hasher(name):
 	global ALGORITHMS
 	try:
+		LOGGER.debug('Attempting to get hasher %s' % name)
 		return ALGORITHMS[name]
 	except KeyError:
 		raise ValueError('Invalid checksum algorithm: %s' % name)

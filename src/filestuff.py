@@ -9,6 +9,10 @@ import fcntl
 from datetime import datetime
 from os import fstat
 from pytz import utc
+import logging
+
+
+LOGGER = logging.getLogger(__name__)
 
 class _BaseFile(object):
 	@property
@@ -77,14 +81,17 @@ class File(BaseFile):
 		self.path = path
 		self.fd = None
 	def __enter__(self):
+		LOGGER.debug('Opening file %s' % self.path)
 		self.fd = open(self.path, 'rb')
 		return _File(self.fd)
 	def __exit__(self, type, value, tb):
 		self.fd.close()
 		self.fd = None
+		LOGGER.debug('Closed file %s' % self.path)
 
 class LockedFile(File):
 	def __enter__(self):
+		LOGGER.debug('Opening locked file %s' % self.path)
 		self.fd = open(self.path, 'rb')
 		fcntl.lockf(self.fd, fcntl.LOCK_SH)
 		return _File(self.fd)
@@ -93,9 +100,11 @@ class LockedFile(File):
 		fcntl.lockf(self.fd, fcntl.LOCK_UN)
 		self.fd.close()
 		self.fd = None
+		LOGGER.debug('Closed locked file %s' % self.path)
 
 class ExclusivelyLockedFile(File):
 	def __enter__(self):
+		LOGGER.debug('Opening exclusively locked file %s' % self.path)
 		self.fd = open(self.path, 'r+b')
 		fcntl.lockf(self.fd, fcntl.LOCK_EX)
 		return _File(self.fd)
@@ -104,6 +113,7 @@ class ExclusivelyLockedFile(File):
 		fcntl.lockf(self.fd, fcntl.LOCK_UN)
 		self.fd.close()
 		self.fd = None
+		LOGGER.debug('Closed exclusively locked file %s' % self.path)
 
 if __name__ == '__main__':
 	import unittest
