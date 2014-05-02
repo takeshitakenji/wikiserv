@@ -46,6 +46,7 @@ class Configuration(object):
 			self.max_entries = None
 
 		self.auto_scrub = bool(document.xpath('/configuration/cache/auto-scrub'))
+		self.send_etags = bool(document.xpath('/configuration/cache/send-etags'))
 		self.dispatcher_thread = bool(document.xpath('/configuration/cache/dispatcher-thread'))
 
 		self.encoding = self.xpath_single(document, '/configuration/processors/encoding/text()')

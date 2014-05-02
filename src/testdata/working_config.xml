@@ -9,6 +9,7 @@
 		<max-age>86400</max-age>
 		<max-entries>2048</max-entries>
 		<auto-scrub />
+		<send-etags />
 	</cache>
 	<processors>
 		<encoding>utf8</encoding>

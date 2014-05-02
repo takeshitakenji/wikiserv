@@ -19,7 +19,7 @@ LOGGER = logging.getLogger('wikiserv')
 
 
 class Server(object):
-	__slots__ = 'configuration', 'cache', 'processors'
+	__slots__ = 'configuration', 'cache', 'processors', 'send_etags',
 	instance = None
 	ilock = Semaphore()
 	@classmethod
@@ -39,6 +39,7 @@ class Server(object):
 			cls.instance = None
 	def __init__(self, configuration):
 		self.processors = configuration.processors
+		self.send_etags = configuration.send_etags
 		ctype = cache.DispatcherCache if configuration.dispatcher_thread else cache.Cache
 		self.cache = ctype(
 			configuration.cache_dir,
@@ -67,9 +68,12 @@ class Server(object):
 		self.cache.close()
 
 class WikiHandler(tornado.web.RequestHandler):
+	def compute_etag(self):
+		return None
 	def check_fill_headers(self, entry):
 		LOGGER.debug('Getting headers for request')
 		prev_mtime = None
+		server = Server.get_instance()
 		try:
 			prev_time = date_parse(self.request.headers['If-Modified-Since'])
 			if prev_time.tzinfo is None:
@@ -77,14 +81,18 @@ class WikiHandler(tornado.web.RequestHandler):
 			LOGGER.debug('Found If-Modified-Since=%s' % prev_time)
 		except KeyError:
 			pass
-		self.set_header('Etag', binascii.hexlify(entry.header.checksum))
+		if server.send_etags:
+			self.set_header('Etag', '"%s"' % binascii.hexlify(entry.header.checksum).decode('ascii'))
 		self.set_header('Last-Modified', format_datetime(entry.header.timestamp))
 		self.set_header('Cache-Control', 'Public')
 		content_header = processors.Processor.read_header(entry)
 		self.set_header('Content-Type', '%s; charset=%s' % (content_header.mime, content_header.encoding))
-		if (prev_mtime is not None and entry.timestamp <= prev_mtime) \
-				or self.check_etag_header():
-			LOGGER.debug('Returning 304')
+		if prev_mtime is not None and entry.timestamp <= prev_mtime:
+			LOGGER.debug('Returning 304 from modification time')
+			self.set_status(304)
+			return False
+		elif server.send_etags and self.check_etag_header():
+			LOGGER.debug('Returning 304 from etags time')
 			self.set_status(304)
 			return False
 		return True
