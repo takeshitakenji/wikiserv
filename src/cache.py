@@ -329,7 +329,7 @@ class Cache(object):
 						continue
 					timestamp = entry.modified
 					# Check age
-					if timestamp < cutoff:
+					if cutoff is not None and timestamp < cutoff:
 						remove(entry.name)
 						continue
 					# Count as entry if it is young enough
@@ -340,19 +340,19 @@ class Cache(object):
 			# Stop when enough files have been deleted
 			ecount = len(entries)
 			if self.__options.max_entries is not None and ecount >= self.__options.max_entries:
-				equeue = queue()
+				equeue = Queue()
 				for entry in sorted(entries, key = lambda x: x[1]):
 					equeue.put(entry)
-				removed = 0
 
 				try:
-					while ecount - removed >= self.__options.max_entries:
+					while ecount > 0 and ecount >= self.__options.max_entries:
+						fname, timestamp = equeue.get(False)
 						with filestuff.ExclusivelyLockedFile(fname) as entry:
-							fname, timestamp = queue.get(False)
-							if entry.timestamp > timestamp:
+							if entry.modified > timestamp:
 								equeue.put((fname, timestamp))
 							else:
 								remove(fname)
+								ecount -= 1
 							equeue.task_done()
 				except Empty:
 					pass
@@ -365,7 +365,7 @@ class Cache(object):
 					# Directory is not empty
 					continue
 
-			self.__known_entry_count = len(entries)
+			self.__known_entry_count = ecount
 			return True
 
 if __name__ == '__main__':
@@ -726,7 +726,7 @@ if __name__ == '__main__':
 				self.assertEqual('TOUCHED\nfoobar'.encode('ascii'), data)
 			self.assertEqual(self.count, 1)
 			self.assertEqual(len(self.cache), 1)
-	class CacheTest(unittest.TestCase):
+	class ExpiringCacheTest(unittest.TestCase):
 		def process(self, inf, outf):
 			print('PROCESS(INF=%s, OUTF=%s)' % (inf.name, outf.name))
 			self.count += 1
@@ -769,4 +769,104 @@ if __name__ == '__main__':
 				self.assertEqual('TOUCHED\nfoobar'.encode('ascii'), data)
 			self.assertEqual(self.count, 2)
 			self.assertEqual(len(self.cache), 1)
+	class LRUCacheTest(unittest.TestCase):
+		def process(self, inf, outf):
+			print('PROCESS(INF=%s, OUTF=%s)' % (inf.name, outf.name))
+			self.count += 1
+			outf.write('TOUCHED\n'.encode('ascii'))
+			copyfileobj(inf, outf)
+		def setUp(self):
+			self.tmpdir = mkdtemp()
+			self.cachedir = mkdtemp()
+			self.count = 0
+			self.cache = Cache(self.cachedir, self.tmpdir, md5, self.process, max_entries = 5)
+		def tearDown(self):
+			self.cache = None
+			rmtree(self.cachedir)
+			rmtree(self.tmpdir)
+		def test_exceed(self):
+			infiles = ['%d.txt' % i for i in range(1, 7)]
+			content = {}
+			for infile in infiles:
+				with open(path_join(self.tmpdir, infile), 'w', encoding = 'ascii') as f:
+					content[infile] = ('FILE=%s' % infile)
+					f.write(content[infile])
+					sleep(0.1)
+
+			for infile in infiles[:5]:
+				with self.cache[infile] as entry:
+					reader = getreader('ascii')(entry)
+					data = reader.read()
+					self.assertEqual('TOUCHED\n' + content[infile], data)
+					sleep(0.1)
+			self.assertEqual(self.count, 5)
+			self.assertEqual(len(self.cache), 5)
+
+			infile = infiles[5]
+			with self.cache[infile] as entry:
+				reader = getreader('ascii')(entry)
+				data = reader.read()
+				self.assertEqual('TOUCHED\n' + content[infile], data)
+				sleep(0.1)
+			self.assertEqual(self.count, 6)
+
+			self.cache.scrub()
+
+			infile = infiles[0]
+			with self.cache[infile] as entry:
+				reader = getreader('ascii')(entry)
+				data = reader.read()
+				self.assertEqual('TOUCHED\n' + content[infile], data)
+				sleep(0.1)
+			self.assertEqual(self.count, 7)
+			self.assertEqual(len(self.cache), 5)
+	class AutoLRUCacheTest(unittest.TestCase):
+		def process(self, inf, outf):
+			print('PROCESS(INF=%s, OUTF=%s)' % (inf.name, outf.name))
+			self.count += 1
+			outf.write('TOUCHED\n'.encode('ascii'))
+			copyfileobj(inf, outf)
+		def setUp(self):
+			self.tmpdir = mkdtemp()
+			self.cachedir = mkdtemp()
+			self.count = 0
+			self.cache = Cache(self.cachedir, self.tmpdir, md5, self.process, max_entries = 5, auto_scrub = True)
+		def tearDown(self):
+			self.cache = None
+			rmtree(self.cachedir)
+			rmtree(self.tmpdir)
+		def test_exceed(self):
+			infiles = ['%d.txt' % i for i in range(1, 7)]
+			content = {}
+			for infile in infiles:
+				with open(path_join(self.tmpdir, infile), 'w', encoding = 'ascii') as f:
+					content[infile] = ('FILE=%s' % infile)
+					f.write(content[infile])
+					sleep(0.1)
+
+			for infile in infiles[:5]:
+				with self.cache[infile] as entry:
+					reader = getreader('ascii')(entry)
+					data = reader.read()
+					self.assertEqual('TOUCHED\n' + content[infile], data)
+					sleep(0.1)
+			self.assertEqual(self.count, 5)
+			self.assertEqual(len(self.cache), 5)
+
+			infile = infiles[5]
+			with self.cache[infile] as entry:
+				reader = getreader('ascii')(entry)
+				data = reader.read()
+				self.assertEqual('TOUCHED\n' + content[infile], data)
+				sleep(0.1)
+			self.assertEqual(self.count, 6)
+
+			infile = infiles[0]
+			with self.cache[infile] as entry:
+				reader = getreader('ascii')(entry)
+				data = reader.read()
+				self.assertEqual('TOUCHED\n' + content[infile], data)
+				sleep(0.1)
+			self.assertEqual(self.count, 7)
+			self.assertEqual(len(self.cache), 5)
 	unittest.main()
