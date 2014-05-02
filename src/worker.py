@@ -6,7 +6,7 @@ if sys.version_info < (3, 3):
 
 from queue import Queue
 from threading import Thread, Condition, Lock
-from traceback import print_exception
+from traceback import print_exception, extract_stack, format_list
 import logging
 
 
@@ -19,32 +19,45 @@ class Finished(Exception):
 
 
 class Job(object):
-	__slots__ = '__func', '__args', '__kwargs', '__completed', '__result', '__exception', '__lock', '__cond'
+	__slots__ = '__func', '__args', '__kwargs', '__completed', '__result', '__exception', '__lock', '__cond', '__creation_stack'
 	def __init__(self, func, *args, **kwargs):
 		if not callable(func):
 			raise ValueError(func)
 		self.__lock = Lock()
 		self.__cond = Condition(self.__lock)
 		self.__func, self.__args, self.__kwargs = func, args, kwargs
+		self.__creation_stack = tuple(extract_stack())
 		self.__completed, self.__result, self.__exception = False, None, None
-	def __str__(self):
-		return repr(self)
-	def __repr__(self):
+	def __abbrev_info(self):
 		return 'Job %x: %s(*%s, **%s)' % (id(self), self.__func, repr(self.__args), repr(self.__kwargs))
+	def __full_info(self):
+		out = [self.__abbrev_info(), '\n']
+		out.extend(format_list(self.__creation_stack))
+		return ''.join(out)
+	def __str__(self):
+		with self.__lock:
+			return self.__full_info()
+	def __repr__(self):
+		with self.__lock:
+			return self.__abbrev_info()
+	@property
+	def stack(self):
+		with self.__lock:
+			return self.__creation_stack
 	def complete(self, result):
 		with self.__lock:
 			self.__completed = True
 			self.__result = result
 			self.__cond.notify_all()
-			LOGGER.debug('Job %s is complete' % self)
+			LOGGER.debug('Job %s is complete' % self.__abbrev_info())
 	def complete_exception(self, exception):
 		with self.__lock:
 			self.__completed = True
 			self.__exception = exception
 			self.__cond.notify_all()
-			LOGGER.debug('Job %s is complete' % self)
+			LOGGER.debug('Job %s is complete' % self.__abbrev_info())
 	def __call__(self):
-		LOGGER.debug('Job %s is being executed' % self)
+		LOGGER.debug('Job %s is being executed' % self.__abbrev_info())
 		return self.__func(*self.__args, **self.__kwargs)
 	@property
 	def result(self):
@@ -114,6 +127,7 @@ class Worker(Thread):
 
 if __name__ == '__main__':
 	import unittest
+	logging.basicConfig(level = logging.DEBUG)
 
 	class InitTest(unittest.TestCase):
 		def test_init(self):

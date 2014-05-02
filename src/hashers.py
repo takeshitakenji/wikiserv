@@ -54,6 +54,7 @@ def get_hasher(name):
 if __name__ == '__main__':
 	import unittest
 	import timeit
+	logging.basicConfig(level = logging.DEBUG)
 	class HashTest(unittest.TestCase):
 		TEST_DATA = b'TEST' * 4096
 		def test_available(self):

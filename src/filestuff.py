@@ -122,6 +122,7 @@ if __name__ == '__main__':
 	from hashlib import md5
 	from dateutil.tz import tzlocal
 
+	logging.basicConfig(level = logging.DEBUG)
 	localtz = tzlocal()
 
 	def hashstring(s, cksum_type):

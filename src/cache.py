@@ -6,7 +6,7 @@ if sys.version_info < (3, 3):
 import struct
 from datetime import datetime, timedelta
 from pytz import utc
-import filestuff
+import filestuff, worker
 import fcntl, os.path, stat, os
 from os import fstat, mkdir, fchmod, chmod, utime, remove
 from os.path import join as path_join, isdir, isfile, normpath, dirname, relpath
@@ -14,6 +14,7 @@ from traceback import print_exc
 from collections import namedtuple
 from queue import Queue, Empty
 import logging
+from threading import Lock
 
 
 LOGGER = logging.getLogger(__name__)
@@ -387,6 +388,21 @@ class Cache(object):
 			self.__known_entry_count = ecount
 			return True
 
+class DispatcherCache(Cache):
+	__slots__ = '__worker', '__wlock',
+	def __init__(self, root, source_root, checksum_function, filter_function, max_age = None, max_entries = None, auto_scrub = False):
+		Cache.__init__(self, root, source_root, checksum_function, filter_function, max_age, max_entries, auto_scrub)
+		self.__wlock = Lock()
+		self.__worker = worker.Worker(autostart = True)
+	def schedule_scrub(self, tentative = False):
+		return self.__worker.schedule(self.scrub)
+	def close(self):
+		with self.__wlock:
+			if self.__worker is not None:
+				self.__worker.finish()
+				self.__worker.join()
+				self.__worker = None
+
 if __name__ == '__main__':
 	import unittest
 	from os import remove, stat
@@ -396,6 +412,8 @@ if __name__ == '__main__':
 	from shutil import copyfileobj, rmtree
 	from traceback import print_stack
 	from time import sleep
+
+	logging.basicConfig(level = logging.DEBUG)
 
 	def hashstring(s, cksum_type):
 		hasher = cksum_type()
@@ -840,7 +858,7 @@ if __name__ == '__main__':
 					self.assertEqual('TOUCHED\n' + content[infile], data)
 					sleep(0.1)
 			self.assertEqual(self.count, 5)
-			self.assertEqual(len(self.cache), 5)
+			self.assertTrue(len(self.cache) <= 5)
 
 			infile = infiles[5]
 			with self.cache[infile] as entry:
@@ -850,6 +868,7 @@ if __name__ == '__main__':
 				sleep(0.1)
 			self.assertEqual(self.count, 6)
 
+			# Should cause an entry to be dropped (it blocks while scrubbing)
 			infile = infiles[0]
 			with self.cache[infile] as entry:
 				reader = getreader('ascii')(entry)
@@ -857,5 +876,46 @@ if __name__ == '__main__':
 				self.assertEqual('TOUCHED\n' + content[infile], data)
 				sleep(0.1)
 			self.assertEqual(self.count, 7)
-			self.assertEqual(len(self.cache), 5)
+			self.AssertTrue(len(self.cache) <= 5)
+	class DispatcherCacheTest(BaseCacheTest):
+		def get_cache(self, cachedir, tmpdir):
+			return DispatcherCache(self.cachedir, self.tmpdir, md5, self.process, max_entries = 5, auto_scrub = True)
+		def test_exceed(self):
+			infiles = ['%d.txt' % i for i in range(1, 7)]
+			content = {}
+			for infile in infiles:
+				with open(path_join(self.tmpdir, infile), 'w', encoding = 'ascii') as f:
+					content[infile] = ('FILE=%s' % infile)
+					f.write(content[infile])
+					sleep(0.1)
+
+			for infile in infiles[:5]:
+				with self.cache[infile] as entry:
+					reader = getreader('ascii')(entry)
+					data = reader.read()
+					self.assertEqual('TOUCHED\n' + content[infile], data)
+					sleep(0.1)
+			self.assertEqual(self.count, 5)
+			self.assertTrue(len(self.cache) <= 5)
+
+			infile = infiles[5]
+			with self.cache[infile] as entry:
+				reader = getreader('ascii')(entry)
+				data = reader.read()
+				self.assertEqual('TOUCHED\n' + content[infile], data)
+				sleep(0.1)
+			self.assertEqual(self.count, 6)
+
+
+			# Should cause an entry to be dropped
+			infile = infiles[0]
+			with self.cache[infile] as entry:
+				reader = getreader('ascii')(entry)
+				data = reader.read()
+				self.assertEqual('TOUCHED\n' + content[infile], data)
+				sleep(0.1)
+			self.assertEqual(self.count, 7)
+			# Wait for thread to do its business
+			sleep(0.5)
+			self.assertTrue(len(self.cache) <= 5)
 	unittest.main()
