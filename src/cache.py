@@ -319,6 +319,9 @@ class Cache(object):
 	def lockfile(self):
 		return path_join(self.__root, '.lock')
 	@property
+	def source_root(self):
+		return self.__source_root
+	@property
 	def options(self):
 		return self.__options
 	def __len__(self):
