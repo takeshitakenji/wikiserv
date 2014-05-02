@@ -25,6 +25,11 @@ class Configuration(object):
 		return matches[0]
 	def __init__(self, stream):
 		document = etree.parse(stream)
+		try:
+			log_level = self.xpath_single(document, '/configuration/log-level/text()').strip().upper()
+			self.log_level = getattr(logging, log_level)
+		except (KeyError, AttributeError):
+			self.log_level = logging.ERROR
 		self.cache_dir = self.xpath_single(document, '/configuration/cache/cache-dir/text()').strip()
 		self.source_dir = self.xpath_single(document, '/configuration/cache/source-dir/text()').strip()
 		self.checksum_function = hashers.get_hasher( \
@@ -41,6 +46,7 @@ class Configuration(object):
 			self.max_entries = None
 
 		self.auto_scrub = bool(document.xpath('/configuration/cache/auto-scrub'))
+		self.dispatcher_thread = bool(document.xpath('/configuration/cache/dispatcher-thread'))
 
 		self.encoding = self.xpath_single(document, '/configuration/processors/encoding/text()')
 

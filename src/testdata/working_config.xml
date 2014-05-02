@@ -1,9 +1,10 @@
 <?xml version="1.0" ?>
 
 <configuration>
+	<log-level>DEBUG</log-level>
 	<cache>
-		<cache-dir>example-cache</cache-dir>
-		<source-dir>example-source</source-dir>
+		<cache-dir>testdata/test_cache</cache-dir>
+		<source-dir>testdata/test_root</source-dir>
 		<checksum-function>sha1</checksum-function>
 		<max-age>86400</max-age>
 		<max-entries>2048</max-entries>
@@ -12,6 +13,5 @@
 	<processors>
 		<encoding>utf8</encoding>
 		<processor>asciidoc-xhtml11</processor>
-		<processor extensions=".txt">asciidoc-xhtml11</processor>
 	</processors>
 </configuration>
