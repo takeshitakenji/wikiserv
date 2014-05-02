@@ -109,7 +109,7 @@ class IndexHandler(tornado.web.RequestHandler):
 				return cls.Info(relpath(path, root), f.modified, f.size)
 		except OSError:
 			return None
-	def check_fill_headers(self, start):
+	def check_fill_headers(self, start, filter_string):
 		LOGGER.debug('Getting headers for request')
 		prev_mtime = None
 		server = Server.get_instance()
@@ -120,10 +120,14 @@ class IndexHandler(tornado.web.RequestHandler):
 			LOGGER.debug('Found If-Modified-Since=%s' % prev_mtime)
 		except KeyError:
 			pass
+		
+		path_filter = lambda path: True
+		if filter_string is not None:
+			path_filter = lambda path: filter_string in path.lower()
 
 		self.set_header('Content-Type', 'application/xhtml+xml; charset=UTF-8')
 		server = Server.get_instance()
-		find_files = cache.Cache.find_files(server.cache.source_root)
+		find_files = (path for path in sorted(cache.Cache.find_files(server.cache.source_root)) if path_filter(path))
 		files = (self.get_info(x, server.cache.source_root) for x in itertools.islice(find_files, start, start + self.COUNT, 1))
 		files = [x for x in files if x is not None]
 
@@ -151,8 +155,9 @@ class IndexHandler(tornado.web.RequestHandler):
 				start = 0
 		except ValueError:
 			start = 0
+		filter_string = self.get_argument('filter', None)
 		LOGGER.debug('HEAD INDEX start=%d' % start)
-		self.check_fill_headers(start)
+		self.check_fill_headers(start, filter_string)
 	def get(self):
 		try:
 			start = int(self.get_argument('start', 0))
@@ -160,8 +165,9 @@ class IndexHandler(tornado.web.RequestHandler):
 				start = 0
 		except ValueError:
 			start = 0
+		filter_string = self.get_argument('filter', None)
 		LOGGER.debug('GET INDEX start=%d' % start)
-		files, less, more = self.check_fill_headers(start)
+		files, less, more = self.check_fill_headers(start, filter_string)
 		if files is False:
 			return False
 		LOGGER.debug('Yielding %d files (more=%s, less=%s)' % (len(files), less, more))
