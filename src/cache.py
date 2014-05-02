@@ -252,6 +252,13 @@ class Cache(object):
 
 		# Scrub to set up the structures for the first time
 		self.scrub()
+	
+	def __enter__(self):
+		return self
+	def __exit__(self, type, value, tb):
+		self.close()
+	def close(self):
+		pass
 	def __str__(self):
 		return 'Cache at %s mirroring original %s' % (self.__root, self.__source_root)
 	def schedule_scrub(self, tentative = False):
@@ -621,6 +628,7 @@ if __name__ == '__main__':
 			self.count = 0
 			self.cache = Cache(self.cachedir, self.tmpdir, md5, self.process)
 		def tearDown(self):
+			self.cache.close()
 			self.cache = None
 			rmtree(self.cachedir)
 			rmtree(self.tmpdir)
@@ -750,6 +758,7 @@ if __name__ == '__main__':
 			self.count = 0
 			self.cache = Cache(self.cachedir, self.tmpdir, md5, self.process, max_age = timedelta(seconds = 1))
 		def tearDown(self):
+			self.cache.close()
 			self.cache = None
 			rmtree(self.cachedir)
 			rmtree(self.tmpdir)
@@ -793,6 +802,7 @@ if __name__ == '__main__':
 			self.count = 0
 			self.cache = Cache(self.cachedir, self.tmpdir, md5, self.process, max_entries = 5)
 		def tearDown(self):
+			self.cache.close()
 			self.cache = None
 			rmtree(self.cachedir)
 			rmtree(self.tmpdir)
@@ -844,6 +854,7 @@ if __name__ == '__main__':
 			self.count = 0
 			self.cache = Cache(self.cachedir, self.tmpdir, md5, self.process, max_entries = 5, auto_scrub = True)
 		def tearDown(self):
+			self.cache.close()
 			self.cache = None
 			rmtree(self.cachedir)
 			rmtree(self.tmpdir)
