@@ -52,6 +52,7 @@ class Configuration(object):
 		self.encoding = self.xpath_single(document, '/configuration/processors/encoding/text()')
 
 		self.processors = {}
+		procs = {}
 		for child in document.xpath('/configuration/processors/processor'):
 			name = ''.join(child.xpath('text()'))
 			extensions = None
@@ -61,13 +62,13 @@ class Configuration(object):
 			except KeyError:
 				pass
 
-			proctype = processors.get_processor(name)
+			if name not in procs:
+				procs[name] = processors.get_processor(name)(self.encoding)
 			if extensions:
-				proc = proctype(self.encoding)
 				for extension in extensions:
-					self.processors[extension] = proc
+					self.processors[extension] = procs[name]
 			else:
-				self.processors[None] = proctype(self.encoding)
+				self.processors[None] = procs[name]
 		if None not in self.processors:
 			LOGGER.warning('There is no processor defined for unspecified file extensions.')
 	@property
