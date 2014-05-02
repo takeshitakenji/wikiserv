@@ -615,23 +615,28 @@ if __name__ == '__main__':
 			dirs = [relpath(x, self.tmpdir) for x in Cache.find_dirs(self.tmpdir)]
 			self.assertEqual(dirs, ['good/subgood', 'good'])
 
-	
-	class CacheTest(unittest.TestCase):
+	class BaseCacheTest(unittest.TestCase):
 		def process(self, inf, outf):
 			print('PROCESS(INF=%s, OUTF=%s)' % (inf.name, outf.name))
 			self.count += 1
 			outf.write('TOUCHED\n'.encode('ascii'))
 			copyfileobj(inf, outf)
+		def get_cache(self, cachedir, tmpdir):
+			raise NotImplementedError
 		def setUp(self):
 			self.tmpdir = mkdtemp()
 			self.cachedir = mkdtemp()
 			self.count = 0
-			self.cache = Cache(self.cachedir, self.tmpdir, md5, self.process)
+			self.cache = self.get_cache(self.cachedir, self.tmpdir)
 		def tearDown(self):
 			self.cache.close()
 			self.cache = None
 			rmtree(self.cachedir)
 			rmtree(self.tmpdir)
+	
+	class CacheTest(BaseCacheTest):
+		def get_cache(self, cachedir, tmpdir):
+			return Cache(self.cachedir, self.tmpdir, md5, self.process)
 		def test_exists(self):
 			self.assertTrue(isfile(self.cache.lockfile))
 		def test_invalid_file(self):
@@ -746,22 +751,9 @@ if __name__ == '__main__':
 				self.assertEqual('TOUCHED\nfoobar'.encode('ascii'), data)
 			self.assertEqual(self.count, 1)
 			self.assertEqual(len(self.cache), 1)
-	class ExpiringCacheTest(unittest.TestCase):
-		def process(self, inf, outf):
-			print('PROCESS(INF=%s, OUTF=%s)' % (inf.name, outf.name))
-			self.count += 1
-			outf.write('TOUCHED\n'.encode('ascii'))
-			copyfileobj(inf, outf)
-		def setUp(self):
-			self.tmpdir = mkdtemp()
-			self.cachedir = mkdtemp()
-			self.count = 0
-			self.cache = Cache(self.cachedir, self.tmpdir, md5, self.process, max_age = timedelta(seconds = 1))
-		def tearDown(self):
-			self.cache.close()
-			self.cache = None
-			rmtree(self.cachedir)
-			rmtree(self.tmpdir)
+	class ExpiringCacheTest(BaseCacheTest):
+		def get_cache(self, cachedir, tmpdir):
+			return Cache(self.cachedir, self.tmpdir, md5, self.process, max_age = timedelta(seconds = 1))
 		def test_expiration(self):
 			temporary = 'test.txt'
 			test_string = 'foobar'
@@ -790,22 +782,9 @@ if __name__ == '__main__':
 				self.assertEqual('TOUCHED\nfoobar'.encode('ascii'), data)
 			self.assertEqual(self.count, 2)
 			self.assertEqual(len(self.cache), 1)
-	class LRUCacheTest(unittest.TestCase):
-		def process(self, inf, outf):
-			print('PROCESS(INF=%s, OUTF=%s)' % (inf.name, outf.name))
-			self.count += 1
-			outf.write('TOUCHED\n'.encode('ascii'))
-			copyfileobj(inf, outf)
-		def setUp(self):
-			self.tmpdir = mkdtemp()
-			self.cachedir = mkdtemp()
-			self.count = 0
-			self.cache = Cache(self.cachedir, self.tmpdir, md5, self.process, max_entries = 5)
-		def tearDown(self):
-			self.cache.close()
-			self.cache = None
-			rmtree(self.cachedir)
-			rmtree(self.tmpdir)
+	class LRUCacheTest(BaseCacheTest):
+		def get_cache(self, cachedir, tmpdir):
+			return Cache(self.cachedir, self.tmpdir, md5, self.process, max_entries = 5)
 		def test_exceed(self):
 			infiles = ['%d.txt' % i for i in range(1, 7)]
 			content = {}
@@ -842,22 +821,9 @@ if __name__ == '__main__':
 				sleep(0.1)
 			self.assertEqual(self.count, 7)
 			self.assertEqual(len(self.cache), 5)
-	class AutoLRUCacheTest(unittest.TestCase):
-		def process(self, inf, outf):
-			print('PROCESS(INF=%s, OUTF=%s)' % (inf.name, outf.name))
-			self.count += 1
-			outf.write('TOUCHED\n'.encode('ascii'))
-			copyfileobj(inf, outf)
-		def setUp(self):
-			self.tmpdir = mkdtemp()
-			self.cachedir = mkdtemp()
-			self.count = 0
-			self.cache = Cache(self.cachedir, self.tmpdir, md5, self.process, max_entries = 5, auto_scrub = True)
-		def tearDown(self):
-			self.cache.close()
-			self.cache = None
-			rmtree(self.cachedir)
-			rmtree(self.tmpdir)
+	class AutoLRUCacheTest(BaseCacheTest):
+		def get_cache(self, cachedir, tmpdir):
+			return Cache(self.cachedir, self.tmpdir, md5, self.process, max_entries = 5, auto_scrub = True)
 		def test_exceed(self):
 			infiles = ['%d.txt' % i for i in range(1, 7)]
 			content = {}
