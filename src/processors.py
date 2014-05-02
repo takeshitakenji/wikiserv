@@ -183,10 +183,13 @@ except ValueError:
 	pass
 
 
+def available_processors():
+	LOGGER.debug('Getting available hashers')
+	return Processor.available_processors()
 
-
-available_processors = Processor.available_processors
-get_processor = Processor.get_processor
+def get_processor(name):
+	LOGGER.debug('Getting processor %s' % name)
+	return Processor.get_processor(name)
 
 
 if __name__ == '__main__':
