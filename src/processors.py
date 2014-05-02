@@ -9,6 +9,7 @@ from collections import namedtuple
 from os.path import pathsep, join as path_join, normpath, isfile, basename
 import logging
 from subprocess import Popen, CalledProcessError, PIPE
+from shutil import copyfileobj
 
 
 LOGGER = logging.getLogger(__name__)
@@ -73,7 +74,6 @@ else:
 
 class Processor(object):
 	processors = {}
-	BLOCK_READ = 0xFFFF
 	NAME = NotImplemented
 	MIME = NotImplemented
 
@@ -97,10 +97,8 @@ class Processor(object):
 	def call_process(cls, args, inf, outf):
 		p = Popen(args, stdin = inf, stdout = PIPE)
 		try:
-			data = p.stdout.read(cls.BLOCK_READ)
-			while data:
-				outf.write(data)
-				data = p.stdout.read(cls.BLOCK_READ)
+			# This is needed because the header will be overwritten otherwise.
+			copyfileobj(p.stdout, outf)
 			p.stdout.close()
 			p.wait()
 		except:
