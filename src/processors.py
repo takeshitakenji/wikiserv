@@ -8,6 +8,7 @@ import struct, platform, os, stat
 from collections import namedtuple
 from os.path import pathsep, join as path_join, normpath, isfile, basename
 import logging
+from subprocess import Popen, CalledProcessError
 
 
 LOGGER = logging.getLogger(__name__)
@@ -83,7 +84,26 @@ class Processor(object):
 	def register(cls):
 		if any((x is NotImplemented for x in [cls.NAME, cls.MIME])):
 			raise RuntimeError('Class %s is not set up properly' % cls)
-		self.processors[cls.NAME] = cls
+		cls.processors[cls.NAME] = cls
+	@classmethod
+	def available_processors(cls):
+		return frozenset(cls.processors.keys())
+	@classmethod
+	def get_processor(cls, name):
+		return cls.processors[name]
+
+	@staticmethod
+	def call_process(args, inf, outf):
+		p = subprocess(args, stdin = inf, stdout = outf)
+		try:
+			p.wait()
+		except:
+			p.terminate()
+			p.wait()
+			raise
+		finally:
+			if p.returncode != 0:
+				raise CalledProcessError('%s exited with %s' % (args[0], p.returncode))
 	
 	def __init__(self, encoding):
 		if len(self.MIME) > 0xFF:
@@ -95,7 +115,7 @@ class Processor(object):
 		encoding.encode('ascii')
 		b''.decode(encoding)
 		
-		self.header = self.Header(self.MIME, encoding)
+		self.header = self.Header(encoding, self.MIME)
 	def write_header(self, stream):
 		encoding = self.header.encoding.encode('ascii')
 		count = stream.write(struct.pack(self.length_format, len(encoding)))
@@ -121,6 +141,50 @@ class Processor(object):
 		return self.process(inf, outf)
 
 
+try:
+	asciidoc = find_executable('asciidoc')
+	class AsciidocProcessor(Processor):
+		BACKEND = NotImplemented
+		ATTRIBUTES = []
+		def process(self, inf, outf):
+			if BACKEND is NotImplemented:
+				raise NotImplementedError
+			args = ['asciidoc', '-b', self.BACKEND, '-a', 'encoding=%s' % self.encoding]
+			for attr in ATTRIBUTES:
+				args += ['-a', attr]
+			args.append('-')
+			self.call_process(args, inf, outf)
+	class AsciidocXHTMLProcessor(AsciidocProcessor):
+		BACKEND = 'xhtml11'
+		NAME = 'asciidoc-xhtml11'
+		MIME = 'application/xhtml+xml'
+		ATTRIBUTES = ['toc2']
+	AsciidocXHTMLProcessor.register()
+
+	class AsciidocHTML5Processor(AsciidocProcessor):
+		BACKEND = 'html5'
+		NAME = 'asciidoc-html5'
+		ATTRIBUTES = ['toc2']
+		MIME = 'text/html'
+	AsciidocHTML5Processor.register()
+
+	class AsciidocHTML4Processor(AsciidocProcessor):
+		BACKEND = 'html4'
+		NAME = 'asciidoc-html4'
+		MIME = 'text/html'
+	AsciidocHTML4Processor.register()
+
+
+except ValueError:
+	pass
+
+
+
+
+available_processors = Processor.available_processors
+get_processor = Processor.get_processor
+
+
 if __name__ == '__main__':
 	import unittest
 	from tempfile import NamedTemporaryFile
@@ -135,6 +199,19 @@ if __name__ == '__main__':
 			else:
 				path = find_executable('sh')
 				self.assertIsNotNone(path)
+	class TestListProcessors(unittest.TestCase):
+		def test_correct_type(self):
+			available = available_processors()
+			self.assertIsInstance(available, frozenset)
+		def test_init(self):
+			available = available_processors()
+			for name in available:
+				proctype = get_processor(name)
+				self.assertIn(Processor, proctype.__mro__)
+
+				proc = proctype('utf8')
+				self.assertIsNotNone(proc)
+				self.assertEqual(proc.header.encoding, 'utf8')
 	class TestHeader(unittest.TestCase):
 		class FakeProcessor(Processor):
 			NAME = 'Fake'
@@ -155,4 +232,12 @@ if __name__ == '__main__':
 				self.assertEqual(text, ftext)
 			finally:
 				remove(name)
+	if 'AsciidocXHTMLProcessor' in vars():
+		class TestAsciidoc(unittest.TestCase):
+			def setUp(self):
+				pass
+			def tearDown(self):
+				pass
+			def test_asciidoc(self):
+				print('TODO')
 	unittest.main()
