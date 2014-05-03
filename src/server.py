@@ -6,7 +6,7 @@ if sys.version_info < (3, 3):
 import tornado.ioloop
 import tornado.web
 import logging, binascii, cgi
-import config, cache, processors, filestuff
+import config, cache, processors, filestuff, search
 from dateutil.parser import parse as date_parse
 from threading import Semaphore
 from pytz import utc
@@ -21,7 +21,7 @@ LOGGER = logging.getLogger('wikiserv')
 
 
 class Server(object):
-	__slots__ = 'configuration', 'cache', 'processors', 'send_etags',
+	__slots__ = 'configuration', 'cache', 'processors', 'send_etags', 'search'
 	instance = None
 	ilock = Semaphore()
 	@classmethod
@@ -52,6 +52,9 @@ class Server(object):
 			configuration.max_entries,
 			configuration.auto_scrub
 		)
+		self.search = search.Search(self)
+	def __del__(self):
+		self.close()
 	def __getitem__(self, key):
 		return self.cache[key]
 	@property
@@ -67,7 +70,13 @@ class Server(object):
 		else:
 			return self.default_processor(inf, outf)
 	def close(self):
-		self.cache.close()
+		if self.cache is not None:
+			self.cache.close()
+			self.cache = None
+		if self.search is not None:
+			self.search.close()
+			self.search = None
+
 
 
 
@@ -97,32 +106,6 @@ def xhtml_head(stream, title, *head):
 def xhtml_foot(stream):
 	print('</body>\n</html>', file = stream)
 
-class Search(object):
-	Info = namedtuple('Info', ['name', 'modified', 'size'])
-	@classmethod
-	def get_info(cls, path, root):
-		with filestuff.LockedFile(path) as f:
-			return cls.Info(relpath(path, root), f.modified, f.size)
-	@classmethod
-	def find_by_path(cls, server, start, end, filter_func = None):
-		if filter_func is None:
-			filter_func = lambda path: True
-		root = server.cache.source_root
-		find_files = (path for path in sorted(cache.Cache.find_files(root)) if filter_func(relpath(path, root)))
-		found = []
-		for path in itertools.islice(find_files, start, end, 1):
-			try:
-				with filestuff.LockedFile(path) as f:
-					found.append(cls.Info(relpath(path, root), f.modified, f.size))
-			except OSError:
-				pass
-		more = False
-		try:
-			find_files.__next__()
-			more = True
-		except StopIteration:
-			pass
-		return found, (start > 0), more
 
 
 class IndexHandler(tornado.web.RequestHandler):
@@ -141,7 +124,7 @@ class IndexHandler(tornado.web.RequestHandler):
 		
 		self.set_header('Content-Type', 'application/xhtml+xml; charset=UTF-8')
 		server = Server.get_instance()
-		files, less, more = Search.find_by_path(server, start, start + self.COUNT, filter_func)
+		files, less, more = server.search.find_by_path(start, start + self.COUNT, filter_func)
 
 		if not files:
 			return [], (start > 0), more
