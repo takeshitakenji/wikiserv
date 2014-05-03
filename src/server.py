@@ -135,22 +135,8 @@ class IndexHandler(tornado.web.RequestHandler):
 		if prev_mtime is not None and newest.modified <= prev_mtime:
 			LOGGER.debug('Returning 304 from modification time')
 			self.set_status(304)
-			return False, (start > 0), more
-		return files, (start > 0), more
-	@staticmethod
-	def filter_search(query, path):
-		LOGGER.debug('filter_search query=%s path=%s' % (query, path))
-		return any((q in path for q in query))
-	@classmethod
-	def fs2func(cls, fs):
-		if fs is None:
-			return None
-		parts = (x.strip() for x in fs.split())
-		parts = frozenset((x for x in parts if x))
-		if parts:
-			return functools.partial(cls.filter_search, parts)
-		else:
-			return None
+			return False, less, more
+		return files, less, more
 	def head(self):
 		try:
 			start = int(self.get_argument('start', 0))
@@ -158,7 +144,10 @@ class IndexHandler(tornado.web.RequestHandler):
 				start = 0
 		except ValueError:
 			start = 0
-		filter_func = self.fs2func(self.get_argument('filter', None))
+		try:
+			filter_func = search.PathFilter(self.get_argument('filter', None))
+		except ValueError:
+			filter_func = None
 		LOGGER.debug('HEAD INDEX start=%d filter_func=%s' % (start, filter_func))
 		self.check_fill_headers(start, filter_func)
 	def get(self):
@@ -168,7 +157,10 @@ class IndexHandler(tornado.web.RequestHandler):
 				start = 0
 		except ValueError:
 			start = 0
-		filter_func = self.fs2func(self.get_argument('filter', None))
+		try:
+			filter_func = search.PathFilter(self.get_argument('filter', None))
+		except ValueError:
+			filter_func = None
 		LOGGER.debug('HEAD INDEX start=%d filter_func=%s' % (start, filter_func))
 		files, less, more = self.check_fill_headers(start, filter_func)
 		if files is False:
