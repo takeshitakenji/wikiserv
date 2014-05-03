@@ -3,8 +3,8 @@
 <configuration>
 	<log-level>DEBUG</log-level>
 	<cache>
-		<cache-dir>testdata/test_cache</cache-dir>
-		<source-dir>testdata/test_root</source-dir>
+		<cache-dir>test_cache</cache-dir>
+		<source-dir>test_root</source-dir>
 		<checksum-function>sha1</checksum-function>
 		<max-age>86400</max-age>
 		<max-entries>2048</max-entries>

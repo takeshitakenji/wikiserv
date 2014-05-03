@@ -6,6 +6,7 @@ if sys.version_info < (3, 3):
 from lxml import etree
 from datetime import timedelta
 import hashers, processors
+from os.path import join as path_join, dirname, normpath, isabs
 import logging
 
 LOGGER = logging.getLogger(__name__)
@@ -23,7 +24,15 @@ class Configuration(object):
 		if not matches:
 			raise KeyError('Missing element: %s' % xpath)
 		return matches[0]
+	@staticmethod
+	def get_path(current_dir, path):
+		path = normpath(path)
+		if isabs(path):
+			return path
+		else:
+			return normpath(path_join(current_dir, path))
 	def include_processors(self, root, source_path):
+		# TODO: Iterate over /configuration/processors/include to include external XML files, noting absolute paths and paths relative to stream.name.
 		included_processors = {}
 		procs = {}
 		for child in root.xpath('processor'):
@@ -42,7 +51,9 @@ class Configuration(object):
 				pass
 
 			proc = None
-			if (name, mime) not in procs:
+			if (name, mime) in procs:
+				proc = procs[name, mime]
+			else:
 				if mime is not None:
 					try:
 						proc = processors.get_processor(name)(mime, self.encoding)
@@ -53,6 +64,8 @@ class Configuration(object):
 					proc = processors.get_processor(name)(self.encoding)
 
 				procs[name, mime] = proc
+			if proc is None:
+				raise RuntimeError
 			if extensions:
 				for extension in extensions:
 					included_processors[extension] = proc
@@ -69,8 +82,8 @@ class Configuration(object):
 			self.log_level = logging.ERROR
 		if setlog:
 			logging.basicConfig(level = self.log_level)
-		self.cache_dir = self.xpath_single(document, '/configuration/cache/cache-dir/text()').strip()
-		self.source_dir = self.xpath_single(document, '/configuration/cache/source-dir/text()').strip()
+		self.cache_dir = self.get_path(dirname(stream.name), self.xpath_single(document, '/configuration/cache/cache-dir/text()').strip())
+		self.source_dir = self.get_path(dirname(stream.name), self.xpath_single(document, '/configuration/cache/source-dir/text()').strip())
 		self.checksum_function = hashers.get_hasher( \
 			self.xpath_single(document, '/configuration/cache/checksum-function/text()').strip())
 
@@ -91,7 +104,6 @@ class Configuration(object):
 		self.encoding = self.xpath_single(document, '/configuration/processors/encoding/text()')
 
 		self.processors = {}
-		# TODO: Iterate over /configuration/processors/include to include external XML files, noting absolute paths and paths relative to stream.name.
 		self.processors.update(self.include_processors(self.xpath_single(document, '/configuration/processors'), stream.name))
 
 		LOGGER.debug('Resulting processors: %s' % self.processors)
@@ -117,8 +129,8 @@ if __name__ == '__main__':
 			with open(self.CONFIG_PATH, 'r', encoding = 'utf8') as f:
 				config = Configuration(f)
 			self.assertIsNotNone(config)
-			self.assertEqual(config.cache_dir, 'example-cache')
-			self.assertEqual(config.source_dir, 'example-source')
+			self.assertEqual(config.cache_dir, path_join('testdata', 'example-cache'))
+			self.assertEqual(config.source_dir, path_join('testdata', 'example-source'))
 			self.assertIsNotNone(config.checksum_function)
 			self.assertEqual(config.max_age, timedelta(seconds = 86400))
 			self.assertEqual(config.max_entries, 2048)
@@ -127,6 +139,7 @@ if __name__ == '__main__':
 			self.assertTrue(config.processors)
 			self.assertIn(None, config.processors)
 			self.assertIsInstance(config.default_processor, processors.Processor)
+			print(config.processors)
 			for extension, processor in config.processors.items():
 				if extension is None:
 					continue

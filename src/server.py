@@ -13,7 +13,7 @@ from pytz import utc
 from email.utils import format_datetime
 from shutil import copyfileobj
 from collections import namedtuple
-import itertools
+import itertools, functools
 from os.path import relpath
 
 LOGGER = logging.getLogger('wikiserv')
@@ -96,20 +96,38 @@ def xhtml_head(stream, title, *head):
 
 def xhtml_foot(stream):
 	print('</body>\n</html>', file = stream)
-		
+
+class Search(object):
+	Info = namedtuple('Info', ['name', 'modified', 'size'])
+	@classmethod
+	def get_info(cls, path, root):
+		with filestuff.LockedFile(path) as f:
+			return cls.Info(relpath(path, root), f.modified, f.size)
+	@classmethod
+	def find_by_path(cls, server, start, end, filter_func = None):
+		if filter_func is None:
+			filter_func = lambda path: True
+		root = server.cache.source_root
+		find_files = (path for path in sorted(cache.Cache.find_files(root)) if filter_func(relpath(path, root)))
+		found = []
+		for path in itertools.islice(find_files, start, end, 1):
+			try:
+				with filestuff.LockedFile(path) as f:
+					found.append(cls.Info(relpath(path, root), f.modified, f.size))
+			except OSError:
+				pass
+		more = False
+		try:
+			find_files.__next__()
+			more = True
+		except StopIteration:
+			pass
+		return found, (start > 0), more
 
 
 class IndexHandler(tornado.web.RequestHandler):
 	COUNT = 100
-	Info = namedtuple('Info', ['name', 'modified', 'size'])
-	@classmethod
-	def get_info(cls, path, root):
-		try:
-			with filestuff.LockedFile(path) as f:
-				return cls.Info(relpath(path, root), f.modified, f.size)
-		except OSError:
-			return None
-	def check_fill_headers(self, start, filter_string):
+	def check_fill_headers(self, start, filter_func = None):
 		LOGGER.debug('Getting headers for request')
 		prev_mtime = None
 		server = Server.get_instance()
@@ -121,33 +139,35 @@ class IndexHandler(tornado.web.RequestHandler):
 		except KeyError:
 			pass
 		
-		path_filter = lambda path: True
-		if filter_string is not None:
-			path_filter = lambda path: filter_string in path.lower()
-
 		self.set_header('Content-Type', 'application/xhtml+xml; charset=UTF-8')
 		server = Server.get_instance()
-		find_files = (path for path in sorted(cache.Cache.find_files(server.cache.source_root)) if path_filter(path))
-		files = (self.get_info(x, server.cache.source_root) for x in itertools.islice(find_files, start, start + self.COUNT, 1))
-		files = [x for x in files if x is not None]
+		files, less, more = Search.find_by_path(server, start, start + self.COUNT, filter_func)
 
-		more = False
-		try:
-			find_files.__next__()
-			more = True
-		except StopIteration:
-			pass
 		if not files:
 			return [], (start > 0), more
 
 		newest = max(files, key = lambda x: x.modified)
 		self.set_header('Last-Modified', format_datetime(newest.modified))
-		self.set_header('Cache-Control', 'Public')
+		self.set_header('Cache-Control', ('no-cache' if filter_func else 'Public'))
 		if prev_mtime is not None and newest.modified <= prev_mtime:
 			LOGGER.debug('Returning 304 from modification time')
 			self.set_status(304)
 			return False, (start > 0), more
 		return files, (start > 0), more
+	@staticmethod
+	def filter_search(query, path):
+		LOGGER.debug('filter_search query=%s path=%s' % (query, path))
+		return any((q in path for q in query))
+	@classmethod
+	def fs2func(cls, fs):
+		if fs is None:
+			return None
+		parts = (x.strip() for x in fs.split())
+		parts = frozenset((x for x in parts if x))
+		if parts:
+			return functools.partial(cls.filter_search, parts)
+		else:
+			return None
 	def head(self):
 		try:
 			start = int(self.get_argument('start', 0))
@@ -155,9 +175,9 @@ class IndexHandler(tornado.web.RequestHandler):
 				start = 0
 		except ValueError:
 			start = 0
-		filter_string = self.get_argument('filter', None)
-		LOGGER.debug('HEAD INDEX start=%d' % start)
-		self.check_fill_headers(start, filter_string)
+		filter_func = self.fs2func(self.get_argument('filter', None))
+		LOGGER.debug('HEAD INDEX start=%d filter_func=%s' % (start, filter_func))
+		self.check_fill_headers(start, filter_func)
 	def get(self):
 		try:
 			start = int(self.get_argument('start', 0))
@@ -165,9 +185,9 @@ class IndexHandler(tornado.web.RequestHandler):
 				start = 0
 		except ValueError:
 			start = 0
-		filter_string = self.get_argument('filter', None)
-		LOGGER.debug('GET INDEX start=%d' % start)
-		files, less, more = self.check_fill_headers(start, filter_string)
+		filter_func = self.fs2func(self.get_argument('filter', None))
+		LOGGER.debug('HEAD INDEX start=%d filter_func=%s' % (start, filter_func))
+		files, less, more = self.check_fill_headers(start, filter_func)
 		if files is False:
 			return False
 		LOGGER.debug('Yielding %d files (more=%s, less=%s)' % (len(files), less, more))
