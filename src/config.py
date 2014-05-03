@@ -23,6 +23,43 @@ class Configuration(object):
 		if not matches:
 			raise KeyError('Missing element: %s' % xpath)
 		return matches[0]
+	def include_processors(self, root, source_path):
+		included_processors = {}
+		procs = {}
+		for child in root.xpath('processor'):
+			name = ''.join(child.xpath('text()'))
+			extensions = None
+			try:
+				extensions = (x.strip() for x in child.attrib['extensions'].split())
+				extensions = [x for x in extensions if x]
+			except KeyError:
+				pass
+
+			mime = None
+			try:
+				mime = child.attrib['mime-type'].strip()
+			except KeyError:
+				pass
+
+			proc = None
+			if (name, mime) not in procs:
+				if mime is not None:
+					try:
+						proc = processors.get_processor(name)(mime, self.encoding)
+					except TypeError:
+						LOGGER.warning('Processor %s does not support MIME assignment' % name)
+						mime = none
+				if proc is None:
+					proc = processors.get_processor(name)(self.encoding)
+
+				procs[name, mime] = proc
+			if extensions:
+				for extension in extensions:
+					included_processors[extension] = proc
+			else:
+				included_processors[None] = proc
+		LOGGER.debug('Resulting procs from %s: %s' % (source_path, procs))
+		return included_processors
 	def __init__(self, stream, setlog = False):
 		document = etree.parse(stream)
 		try:
@@ -54,40 +91,11 @@ class Configuration(object):
 		self.encoding = self.xpath_single(document, '/configuration/processors/encoding/text()')
 
 		self.processors = {}
-		procs = {}
-		for child in document.xpath('/configuration/processors/processor'):
-			name = ''.join(child.xpath('text()'))
-			extensions = None
-			try:
-				extensions = (x.strip() for x in child.attrib['extensions'].split())
-				extensions = [x for x in extensions if x]
-			except KeyError:
-				pass
+		# TODO: Iterate over /configuration/processors/include to include external XML files, noting absolute paths and paths relative to stream.name.
+		self.processors.update(self.include_processors(self.xpath_single(document, '/configuration/processors'), stream.name))
 
-			mime = None
-			try:
-				mime = child.attrib['mime-type'].strip()
-			except KeyError:
-				pass
+		LOGGER.debug('Resulting processors: %s' % self.processors)
 
-			proc = None
-			if (name, mime) not in procs:
-				if mime is not None:
-					try:
-						proc = processors.get_processor(name)(mime, self.encoding)
-					except TypeError:
-						LOGGER.warning('Processor %s does not support MIME assignment' % name)
-						mime = none
-				if proc is None:
-					proc = processors.get_processor(name)(self.encoding)
-
-				procs[name, mime] = proc
-			if extensions:
-				for extension in extensions:
-					self.processors[extension] = proc
-			else:
-				self.processors[None] = proc
-		LOGGER.debug('Resulting procs: %s' % procs)
 		if None not in self.processors:
 			LOGGER.warning('There is no processor defined for unspecified file extensions.')
 	@property
