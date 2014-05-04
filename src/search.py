@@ -96,7 +96,7 @@ class Search(object):
 			return cls.Info(relpath(path, root), f.modified, f.size)
 	def find_by_path(self, start, end, filter_func = None):
 		if filter_func is None:
-			filter_func = lambda path: True
+			filter_func = lambda path, root: True
 		root = self.server.cache.source_root
 		find_files = [path for path in sorted(cache.Cache.find_files(root)) if filter_func(relpath(path, root), root)]
 
