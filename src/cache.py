@@ -15,6 +15,7 @@ from collections import namedtuple
 from queue import Queue, Empty
 import logging
 from threading import Lock
+from shutil import copyfileobj
 
 
 LOGGER = logging.getLogger(__name__)
@@ -115,6 +116,8 @@ class Entry(object):
 			fcntl.lockf(self.__handle, fcntl.LOCK_EX)
 			self.__handle.close()
 			self.__handle = None
+	def __call__(self, outf):
+		copyfileobj(self, outf)
 	def __del__(self):
 		self.close()
 	@property
@@ -176,8 +179,19 @@ class FileLock(object):
 		self.__fd = None
 
 
-class NotCached(Exception):
+class NoCache(Exception):
 	pass
+
+
+class AutoProcess(object):
+	__slots__ = '__inf', '__method',
+	def __init__(self, inf, method):
+		self.__inf = inf
+		self.__method = method
+	def __call__(self, outf):
+		with self.__inf as inf:
+			return self.__method(inf, outf)
+
 
 class Cache(object):
 
@@ -303,14 +317,28 @@ class Cache(object):
 					entry = Entry(handle)
 
 					header = entry.header
+					if header is not None and not header.cached:
+						LOGGER.debug('Not cached for %s' % path)
+						# The lock will be acquired after original has been freed
+						entry.header = EntryHeader(new_header.size, False, new_header.timestamp, new_header.checksum)
+						return AutoProcess(filestuff.LockedFile(original_path), self.__filter_function)
 					new_header = EntryHeader(original.size, True, original.modified, original.checksum(self.__checksum_function))
 					if header != new_header:
 						LOGGER.debug('Calling processor for %s' % path)
-						entry.header = new_header
 						try:
+							entry.header = new_header
 							self.__filter_function(original.handle, entry)
+						except NoCache:
+							# Flag the entry as no-cache
+							entry.header = EntryHeader(new_header.size, False, new_header.timestamp, new_header.checksum)
+							try:
+								entry.close()
+							except:
+								LOGGER.exception('When closing entry %s' % entry.header)
+						# The lock will be acquired after original has been freed
+							return AutoProcess(filestuff.LockedFile(original_path), self.__filter_function)
 						except NotImplementedError:
-							pass
+							entry.header = new_header
 					entry.seek(0)
 					if not update:
 						LOGGER.debug('Adding new entry for %s' % path)

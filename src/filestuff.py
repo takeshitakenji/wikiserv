@@ -53,6 +53,9 @@ class _File(object):
 		info = fstat(self.__fd.fileno())
 		return datetime.utcfromtimestamp(info.st_mtime).replace(tzinfo = utc)
 	@property
+	def timestamp(self):
+		return self.modified
+	@property
 	def size(self):
 		info = fstat(self.__fd.fileno())
 		return info.st_size

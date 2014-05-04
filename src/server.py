@@ -308,6 +308,8 @@ class WikiHandler(tornado.web.RequestHandler):
 		try:
 			wrap = Server.get_instance().cache[path]
 			with wrap as entry:
+				if not entry.header.cached:
+					raise RuntimeError
 				self.check_fill_headers(entry)
 		except KeyError:
 			raise tornado.web.HTTPError(404)
@@ -316,6 +318,8 @@ class WikiHandler(tornado.web.RequestHandler):
 		try:
 			wrap = Server.get_instance().cache[path]
 			with wrap as entry:
+				if not entry.header.cached:
+					raise RuntimeError
 				if not self.check_fill_headers(entry):
 					return
 				LOGGER.debug('Returning data')
