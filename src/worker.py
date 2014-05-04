@@ -170,9 +170,13 @@ class RWAdapter(Job):
 		self.__read = os.fdopen(self.__read, 'rb')
 		Job.__init__(self, self.run, method)
 	def run(self, method):
-		with os.fdopen(self.__write, 'wb') as outf:
-			method(outf)
-		self.__write = None
+		try:
+			with os.fdopen(self.__write, 'wb') as outf:
+				method(outf)
+		except IOError:
+			pass
+		finally:
+			self.__write = None
 	def read(self, length = None):
 		if length is None:
 			return self.__read.read(length)

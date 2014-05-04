@@ -6,7 +6,7 @@ if sys.version_info < (3, 3):
 import tornado.ioloop
 import tornado.web
 import logging, binascii, cgi
-import config, cache, processors, filestuff, search
+import config, cache, processors, filestuff, search, worker
 from dateutil.parser import parse as date_parse
 from threading import Semaphore
 from pytz import utc
@@ -23,7 +23,7 @@ LOGGER = logging.getLogger('wikiserv')
 
 
 class Server(object):
-	__slots__ = 'configuration', 'caches', 'processors', 'send_etags', 'search', 'preview_lines',
+	__slots__ = 'configuration', 'caches', 'processors', 'send_etags', 'search', 'preview_lines', 'workers',
 	instance = None
 	ilock = Semaphore()
 	CACHE_TYPES = {
@@ -74,6 +74,7 @@ class Server(object):
 		return {ctype : cls.get_cache(configuration, pfsrc(ctype), ctype) for ctype in cls.CACHE_TYPES.keys() if not ctype in skip}
 	def __init__(self, configuration):
 		self.caches = {}
+		self.workers = None
 		self.preview_lines = configuration.preview_lines
 		self.processors = configuration.processors
 		self.send_etags = configuration.send_etags
@@ -86,6 +87,7 @@ class Server(object):
 
 		self.caches.update(self.get_caches(configuration, self.process_funcs(self), skip))
 		self.search = search.Search(self)
+		self.workers = worker.WorkerPool(5, autostart = True)
 	def __del__(self):
 		self.close()
 	def __getitem__(self, key):
@@ -101,22 +103,25 @@ class Server(object):
 		if not self.preview_lines:
 			return None
 		with self.preview[path] as preview:
-			header = processors.Processor.read_header(preview)
-			reader = getreader(header.encoding)(preview)
-			return reader.read()
+			try:
+				header = processors.Processor.read_header(preview)
+				reader = getreader(header.encoding)(preview)
+				return reader.read()
+			except IOError:
+				return None
 	@property
 	def default_processor(self):
 		return self.processors[None]
-	def process(self, inf, outf):
+	def process(self, inf, outf, cached):
 		fname = inf.name
 		for extension, processor in self.processors.items():
 			if extension is None:
 				continue
 			elif fname.endswith(extension):
-				return processor(inf, outf)
+				return processor(inf, outf, cached)
 		else:
-			return self.default_processor(inf, outf)
-	def doc_head(self, inf, outf):
+			return self.default_processor(inf, outf, cached)
+	def doc_head(self, inf, outf, cached):
 		LOGGER.debug('doc_head inf=%s outf=%s' % (inf, outf))
 		buff = inf.read(2048)
 		header = processors.AutoBaseProcessor.auto_header(buff)
@@ -136,6 +141,10 @@ class Server(object):
 			except:
 				LOGGER.exception('Closing cache [%s]=%s' % (name, cache))
 		self.caches.clear()
+		if self.workers is not None:
+			self.workers.finish()
+			self.workers.join()
+			self.workers = None
 
 
 
@@ -308,9 +317,17 @@ class WikiHandler(tornado.web.RequestHandler):
 		try:
 			wrap = Server.get_instance().cache[path]
 			with wrap as entry:
-				if not entry.header.cached:
-					raise RuntimeError
-				self.check_fill_headers(entry)
+				if isinstance(entry, cache.AutoProcess):
+					# NoCache
+					reader = worker.RWAdapter(entry)
+					try:
+						with reader:
+							self.check_fill_headers(reader)
+					finally:
+						reader.join()
+
+				else:
+					self.check_fill_headers(entry)
 		except KeyError:
 			raise tornado.web.HTTPError(404)
 	def get(self, path):
@@ -318,12 +335,21 @@ class WikiHandler(tornado.web.RequestHandler):
 		try:
 			wrap = Server.get_instance().cache[path]
 			with wrap as entry:
-				if not entry.header.cached:
-					raise RuntimeError
-				if not self.check_fill_headers(entry):
-					return
-				LOGGER.debug('Returning data')
-				copyfileobj(entry, self)
+				if isinstance(entry, cache.AutoProcess):
+					# NoCache
+					reader = worker.RWAdapter(entry)
+					try:
+						with reader:
+							if not self.check_fill_headers(reader):
+								return
+							copyfileobj(reader, self)
+					finally:
+						reader.join()
+				else:
+					if not self.check_fill_headers(entry):
+						return
+					LOGGER.debug('Returning data')
+					copyfileobj(entry, self)
 		except KeyError:
 			raise tornado.web.HTTPError(404)
 
@@ -421,7 +447,7 @@ if __name__ == '__main__':
 		finally:
 			Server.close_instance()
 	else:
-		def fake_process(inf, outf):
+		def fake_process(inf, outf, cached):
 			raise RuntimeError('Cannot serve pages in scrub mode')
 		cfg.auto_scrub = False
 		Server.get_caches(cfg, fake_process)

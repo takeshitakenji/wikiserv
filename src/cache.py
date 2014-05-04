@@ -69,7 +69,10 @@ class EntryHeader(object):
 		buff = stream.read(cls.minsize)
 		if buff[:len(cls.MAGIC)] != cls.MAGIC:
 			raise ValueError('This is not a recognized format')
-		size, cached, seconds, microseconds, cksum_len = struct.unpack(cls.struct_fmt, buff[len(cls.MAGIC):])
+		try:
+			size, cached, seconds, microseconds, cksum_len = struct.unpack(cls.struct_fmt, buff[len(cls.MAGIC):])
+		except struct.error:
+			raise IOError
 		timestamp = cls.fp2datetime(seconds, microseconds, utc)
 		checksum = None
 		if cksum_len > 0:
@@ -180,7 +183,9 @@ class FileLock(object):
 
 
 class NoCache(Exception):
-	pass
+	def __init__(self, header):
+		Exception.__init__(self)
+		self.header = header
 
 
 class AutoProcess(object):
@@ -190,7 +195,7 @@ class AutoProcess(object):
 		self.__method = method
 	def __call__(self, outf):
 		with self.__inf as inf:
-			return self.__method(inf, outf)
+			return self.__method(inf, outf, False)
 
 
 class Cache(object):
@@ -311,7 +316,7 @@ class Cache(object):
 						update = True
 					except IOError:
 						handle = open(cache_path, 'w+b')
-						LOGGER.debug('Entry does not at %s' % path)
+						LOGGER.debug('Entry does not exist at %s' % path)
 						update = False
 					self.fix_perms(handle)
 					entry = Entry(handle)
@@ -327,8 +332,9 @@ class Cache(object):
 						LOGGER.debug('Calling processor for %s' % path)
 						try:
 							entry.header = new_header
-							self.__filter_function(original.handle, entry)
+							self.__filter_function(original.handle, entry, True)
 						except NoCache:
+							LOGGER.debug('%s does not want to be cached' % path)
 							# Flag the entry as no-cache
 							entry.header = EntryHeader(new_header.size, False, new_header.timestamp, new_header.checksum)
 							try:

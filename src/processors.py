@@ -111,18 +111,24 @@ class BaseProcessor(object):
 		return count
 	@classmethod
 	def read_header(cls, stream):
-		length, = struct.unpack(cls.length_format, stream.read(cls.length_length))
+		try:
+			length, = struct.unpack(cls.length_format, stream.read(cls.length_length))
+		except struct.error:
+			raise IOError
 		encoding = None
 		if length > 0:
 			encoding = stream.read(length).decode('ascii')
 
-		length, = struct.unpack(cls.length_format, stream.read(cls.length_length))
+		try:
+			length, = struct.unpack(cls.length_format, stream.read(cls.length_length))
+		except struct.error:
+			raise IOError
 		mime = stream.read(length).decode('ascii')
 
 		return cls.Header(encoding, mime)
 	def process(self, inf, outf):
 		raise NotImplementedError
-	def __call__(self, inf, outf):
+	def __call__(self, inf, outf, cached):
 		return self.process(inf, outf)
 
 
@@ -167,7 +173,7 @@ class Processor(BaseProcessor):
 	@property
 	def mime_type(self):
 		return self.MIME
-	def __call__(self, inf, outf):
+	def __call__(self, inf, outf, cached):
 		self.write_header(outf, self.header)
 		return self.process(inf, outf)
 
@@ -201,7 +207,7 @@ class AutoBaseProcessor(BaseProcessor):
 
 		LOGGER.debug('Detected encoding=%s mime_type=%s' % (encoding, mime_type))
 		return cls.Header(encoding, mime_type)
-	def __call__(self, inf, outf):
+	def __call__(self, inf, outf, cached):
 		try:
 			header = self.auto_header(inf.read(2048))
 			self.write_header(outf, header)
@@ -215,6 +221,22 @@ class AutoRawProcessor(AutoBaseProcessor):
 	def process(self, inf, outf):
 		copyfileobj(inf, outf)
 AutoRawProcessor.register()
+
+class AutoRawNoCacheProcessor(AutoBaseProcessor):
+	NAME = 'autoraw-nocache'
+	MIME = None
+	def process(self, inf, outf):
+		copyfileobj(inf, outf)
+	def __call__(self, inf, outf, cached):
+		if cached:
+			raise cache.NoCache
+		try:
+			header = self.auto_header(inf.read(2048))
+			self.write_header(outf, header)
+		finally:
+			inf.seek(0)
+		return self.process(inf, outf)
+AutoRawNoCacheProcessor.register()
 
 
 try:
