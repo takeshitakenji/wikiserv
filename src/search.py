@@ -26,6 +26,8 @@ def scrub_terms(string):
 class Filter(object):
 	__slots__ = '__string',
 	def __init__(self, string):
+		if string.startswith('='):
+			raise ValueError('Filter string cannot start with =')
 		self.__string = string
 	def __repr__(self):
 		return self.__string
