@@ -31,18 +31,20 @@ def timestamps_equivalent(t1, t2, tolerance = 0.001):
 	return abs((t1 - t2).total_seconds()) <= tolerance
 
 class EntryHeader(object):
-	__slots__ = 'size', 'timestamp', 'checksum'
+	__slots__ = 'size', 'cached', 'timestamp', 'checksum'
 	MAGIC = b'\xCA\xCE01'
-	struct_fmt = '!IQIH'
-	minsize = len(MAGIC) + len(struct.pack(struct_fmt, 0, 0, 0, 0))
-	def __init__(self, size, timestamp, checksum):
+	struct_fmt = '!I?QIH'
+	minsize = len(MAGIC) + len(struct.pack(struct_fmt, 0, False, 0, 0, 0))
+	def __init__(self, size, cached, timestamp, checksum):
 		if size > 0xFFFFFFFF:
 			raise ValueError('Size is too large')
 		if len(checksum) > 0xFFFF:
 			raise ValueError('Checksum is too long')
-		self.size, self.timestamp, self.checksum = size, timestamp, checksum
+		self.size, self.cached, self.timestamp, self.checksum = size, bool(cached), timestamp, checksum
 	def __eq__(self, other):
-		if not all((hasattr(other, attr) for attr in ['size', 'timestamp', 'checksum'])):
+		if not all((hasattr(other, attr) for attr in ['size', 'cached', 'timestamp', 'checksum'])):
+			return False
+		elif not all([self.cached, other.cached]):
 			return False
 		else:
 			return self.size == other.size and self.timestamp == other.timestamp and self.checksum == other.checksum
@@ -58,7 +60,7 @@ class EntryHeader(object):
 	def write(self, stream):
 		seconds, microseconds = self.datetime2fp(self.timestamp)
 		count = stream.write(self.MAGIC)
-		count += stream.write(struct.pack(self.struct_fmt, self.size, seconds, microseconds, len(self.checksum)))
+		count += stream.write(struct.pack(self.struct_fmt, self.size, self.cached, seconds, microseconds, len(self.checksum)))
 		count += stream.write(self.checksum)
 		return count
 	@classmethod
@@ -66,14 +68,14 @@ class EntryHeader(object):
 		buff = stream.read(cls.minsize)
 		if buff[:len(cls.MAGIC)] != cls.MAGIC:
 			raise ValueError('This is not a recognized format')
-		size, seconds, microseconds, cksum_len = struct.unpack(cls.struct_fmt, buff[len(cls.MAGIC):])
+		size, cached, seconds, microseconds, cksum_len = struct.unpack(cls.struct_fmt, buff[len(cls.MAGIC):])
 		timestamp = cls.fp2datetime(seconds, microseconds, utc)
 		checksum = None
 		if cksum_len > 0:
 			checksum = stream.read(cksum_len)
 		if len(checksum) < cksum_len:
 			raise ValueError('Invalid checksum length')
-		return cls(size, timestamp, checksum)
+		return cls(size, cached, timestamp, checksum)
 
 
 class EntryWrapper(object):
@@ -173,6 +175,9 @@ class FileLock(object):
 		self.__fd.close()
 		self.__fd = None
 
+
+class NotCached(Exception):
+	pass
 
 class Cache(object):
 
@@ -298,7 +303,7 @@ class Cache(object):
 					entry = Entry(handle)
 
 					header = entry.header
-					new_header = EntryHeader(original.size, original.modified, original.checksum(self.__checksum_function))
+					new_header = EntryHeader(original.size, True, original.modified, original.checksum(self.__checksum_function))
 					if header != new_header:
 						LOGGER.debug('Calling processor for %s' % path)
 						entry.header = new_header
@@ -468,21 +473,21 @@ if __name__ == '__main__':
 		def tearDown(self):
 			remove(self.path)
 		def test_basic(self):
-			test = EntryHeader(len(self.FILE_TEXT), self.timestamp, self.FILE_CHECKSUM)
+			test = EntryHeader(len(self.FILE_TEXT), True, self.timestamp, self.FILE_CHECKSUM)
 			self.assertEqual(len(self.FILE_TEXT), test.size)
 			self.assertEqual(self.timestamp, test.timestamp)
 			self.assertEqual(self.FILE_CHECKSUM, test.checksum)
 		def test_bad_checksum(self):
-			self.assertRaises(ValueError, EntryHeader, 0, self.timestamp, ' ' * (0xFFFF + 1))
+			self.assertRaises(ValueError, EntryHeader, 0, True, self.timestamp, ' ' * (0xFFFF + 1))
 		def test_bad_size(self):
-			self.assertRaises(ValueError, EntryHeader, 0xFFFFFFFF + 1, self.timestamp, ' ')
+			self.assertRaises(ValueError, EntryHeader, 0xFFFFFFFF + 1, True, self.timestamp, ' ')
 		def test_write(self):
-			test = EntryHeader(len(self.FILE_TEXT), self.timestamp, self.FILE_CHECKSUM)
+			test = EntryHeader(len(self.FILE_TEXT), True, self.timestamp, self.FILE_CHECKSUM)
 			with open(self.path, 'wb') as outf:
 				self.assertEqual(test.write(outf), EntryHeader.minsize + len(self.FILE_CHECKSUM))
 				self.assertEqual(len(self.FILE_TEXT), outf.write(self.FILE_TEXT))
 		def test_read(self):
-			test = EntryHeader(len(self.FILE_TEXT), self.timestamp, self.FILE_CHECKSUM)
+			test = EntryHeader(len(self.FILE_TEXT), True, self.timestamp, self.FILE_CHECKSUM)
 			with open(self.path, 'wb') as outf:
 				test.write(outf)
 				outf.write(self.FILE_TEXT)
@@ -552,7 +557,7 @@ if __name__ == '__main__':
 			finally:
 				entry.close()
 		def test_create(self):
-			header = EntryHeader(len(self.FILE_TEXT), self.timestamp, self.FILE_CHECKSUM)
+			header = EntryHeader(len(self.FILE_TEXT), True, self.timestamp, self.FILE_CHECKSUM)
 			entry = Entry(open(self.path, 'w+b'))
 			try:
 				entry.header = header
@@ -565,7 +570,7 @@ if __name__ == '__main__':
 			finally:
 				entry.close()
 		def test_create_read(self):
-			header = EntryHeader(len(self.FILE_TEXT), self.timestamp, self.FILE_CHECKSUM)
+			header = EntryHeader(len(self.FILE_TEXT), True, self.timestamp, self.FILE_CHECKSUM)
 			entry = Entry(open(self.path, 'w+b'))
 			try:
 				entry.header = header
@@ -581,14 +586,14 @@ if __name__ == '__main__':
 			finally:
 				entry.close()
 		def test_create_overwrite(self):
-			header = EntryHeader(len(self.FILE_TEXT), self.timestamp, self.FILE_CHECKSUM)
+			header = EntryHeader(len(self.FILE_TEXT), True, self.timestamp, self.FILE_CHECKSUM)
 			entry = Entry(open(self.path, 'w+b'))
 			try:
 				entry.header = header
 				self.assertGreater(entry.write(self.FILE_TEXT), 0)
 			finally:
 				entry.close()
-			header2 = EntryHeader(len(self.FILE_TEXT2), self.timestamp2, self.FILE_CHECKSUM2)
+			header2 = EntryHeader(len(self.FILE_TEXT2), True, self.timestamp2, self.FILE_CHECKSUM2)
 			entry = Entry(open(self.path, 'r+b'))
 			try:
 				self.assertTrue(entry.active)
@@ -687,7 +692,7 @@ if __name__ == '__main__':
 				tmp.write(test_string)
 			self.assertTrue(isfile(temporary_path))
 			with filestuff.File(temporary_path) as info:
-				header = EntryHeader(info.size, info.modified, info.checksum(md5))
+				header = EntryHeader(info.size, True, info.modified, info.checksum(md5))
 
 			with self.cache[temporary] as entry:
 				self.assertEqual(header, entry.header)
@@ -705,7 +710,7 @@ if __name__ == '__main__':
 				tmp.write(test_string)
 			self.assertTrue(isfile(temporary_path))
 			with filestuff.File(temporary_path) as info:
-				header = EntryHeader(info.size, info.modified, info.checksum(md5))
+				header = EntryHeader(info.size, True, info.modified, info.checksum(md5))
 
 			with self.cache[temporary] as entry:
 				self.assertEqual(header, entry.header)
@@ -729,7 +734,7 @@ if __name__ == '__main__':
 			with open(temporary_path, 'w', encoding = 'ascii') as tmp:
 				tmp.write(test_string)
 			with filestuff.File(temporary_path) as info:
-				header = EntryHeader(info.size, info.modified, info.checksum(md5))
+				header = EntryHeader(info.size, True, info.modified, info.checksum(md5))
 
 			with self.cache[temporary] as entry:
 				self.assertEqual(header, entry.header)
@@ -769,7 +774,7 @@ if __name__ == '__main__':
 				tmp.write(test_string)
 			self.assertTrue(isfile(temporary_path))
 			with filestuff.File(temporary_path) as info:
-				header = EntryHeader(info.size, info.modified, info.checksum(md5))
+				header = EntryHeader(info.size, True, info.modified, info.checksum(md5))
 
 			with self.cache[temporary] as entry:
 				self.assertEqual(header, entry.header)
@@ -797,7 +802,7 @@ if __name__ == '__main__':
 				tmp.write(test_string)
 			self.assertTrue(isfile(temporary_path))
 			with filestuff.File(temporary_path) as info:
-				header = EntryHeader(info.size, info.modified, info.checksum(md5))
+				header = EntryHeader(info.size, True, info.modified, info.checksum(md5))
 
 			with self.cache[temporary] as entry:
 				self.assertEqual(header, entry.header)
@@ -893,7 +898,7 @@ if __name__ == '__main__':
 				self.assertEqual('TOUCHED\n' + content[infile], data)
 				sleep(0.1)
 			self.assertEqual(self.count, 7)
-			self.AssertTrue(len(self.cache) <= 5)
+			self.assertTrue(len(self.cache) <= 5)
 	class DispatcherCacheTest(BaseCacheTest):
 		def get_cache(self, cachedir, tmpdir):
 			return DispatcherCache(self.cachedir, self.tmpdir, md5, self.process, max_entries = 5, auto_scrub = True)
