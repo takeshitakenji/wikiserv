@@ -165,13 +165,13 @@ class WorkerPool(Queued):
 
 class RWAdapter(Job):
 	__slots__ = '__method', '__read', '__write',
-	def __init__(self, method, method_inf):
+	def __init__(self, method):
 		self.__read, self.__write = os.pipe()
 		self.__read = os.fdopen(self.__read, 'rb')
-		Job.__init__(self, self.run, method, method_inf)
-	def run(self, method, inf):
+		Job.__init__(self, self.run, method)
+	def run(self, method):
 		with os.fdopen(self.__write, 'wb') as outf:
-			method(inf, outf)
+			method(outf)
 		self.__write = None
 	def read(self, length = None):
 		if length is None:
@@ -199,6 +199,7 @@ if __name__ == '__main__':
 	import unittest
 	from tempfile import TemporaryFile
 	from shutil import copyfileobj
+	import functools
 	logging.basicConfig(level = logging.DEBUG)
 
 	class InitTest(unittest.TestCase):
@@ -295,7 +296,7 @@ if __name__ == '__main__':
 				tmp.write(TEXT)
 				tmp.flush()
 				tmp.seek(0)
-				job = RWAdapter(self.process, tmp)
+				job = RWAdapter(functools.partial(self.process, tmp))
 				self.thread.schedule(job)
 				try:
 					text = job.read()
