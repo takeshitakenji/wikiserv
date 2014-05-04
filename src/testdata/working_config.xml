@@ -16,5 +16,6 @@
 	<processors>
 		<encoding>utf8</encoding>
 		<processor extensions="txt">asciidoc-xhtml11</processor>
+		<processor extensions="md">markdown-xhtml1</processor>
 	</processors>
 </configuration>

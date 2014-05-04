@@ -271,40 +271,66 @@ try:
 	class MarkdownProcessor(Processor):
 		BACKEND = NotImplemented
 		EXTENSIONS = []
-		FOOTER_LINK = '\n----\n[Index](/)\n'
+		DOCUMENT_START = NotImplemented
+		DOCUMENT_END = '\n</body>\n</html>\n'
+		FOOTER_LINK = '\n<p><a href="/">Index</a></p>\n'
 		insert_link = True
 		__slots__ = 'footer_link',
 		def __init__(self, encoding):
 			Processor.__init__(self, encoding)
 			self.footer_link = self.FOOTER_LINK.encode(encoding)
 		def process(self, inf, outf):
-			if self.BACKEND is NotImplemented:
-				raise RuntimeError
-			if self.insert_link:
-				with TemporaryFile('w+b') as tmp:
-					copyfileobj(inf, tmp)
-					tmp.write(self.footer_link)
-					tmp.flush()
-					tmp.seek(0)
-					markdown.markdownFromFile(input = tmp, output = outf, encoding = self.header.encoding, extensions = self.EXTENSIONS, output_format = self.BACKEND)
-			else:
+			if self.DOCUMENT_START is NotImplemented or self.BACKEND is NotImplemented:
+				raise NotImplementedError
+			writer = getwriter(self.header.encoding)(outf)
+			writer.write(self.DOCUMENT_START.format(title = basename(inf.name)))
+			try:
 				markdown.markdownFromFile(input = inf, output = outf, encoding = self.header.encoding, extensions = self.EXTENSIONS, output_format = self.BACKEND)
+			finally:
+				writer.write(self.DOCUMENT_END)
 	class MarkdownXHTMLProcessor(MarkdownProcessor):
 		BACKEND = 'xhtml1'
 		NAME = 'markdown-xhtml1'
 		MIME = 'application/xhtml+xml'
+
+		DOCUMENT_START = \
+"""<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
+<head>
+	<title>{title}</title>
+</head>
+<body>
+"""
 	MarkdownXHTMLProcessor.register()
 
 	class MarkdownHTML5Processor(MarkdownProcessor):
 		BACKEND = 'html5'
 		NAME = 'markdown-html5'
 		MIME = 'text/html'
+
+		DOCUMENT_START = \
+"""<!DOCTYPE html PUBLIC>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
+<head>
+	<title>{title}</title>
+</head>
+<body>
+"""
 	MarkdownHTML5Processor.register()
 
 	class MarkdownHTML4Processor(MarkdownProcessor):
 		BACKEND = 'html4'
 		NAME = 'markdown-html4'
 		MIME = 'text/html'
+
+		DOCUMENT_START = \
+"""<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
+<head>
+	<title>{title}</title>
+</head>
+<body>
+"""
 	MarkdownHTML4Processor.register()
 
 
@@ -444,8 +470,6 @@ converting them to HTML and a caching mechanism.
 						proc(inf, outf)
 					outf.seek(0)
 					header = proctype.read_header(outf)
-					print(outf.name)
-					sleep(10)
 					self.assertEqual(header, proc.header)
 					# XHTML is XML, so this should work
 					document = etree.parse(outf)
