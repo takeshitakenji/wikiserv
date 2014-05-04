@@ -44,6 +44,15 @@ class PathFilter(Filter):
 		LOGGER.debug('PathFilter query=%s path=%s' % (self.terms, path))
 		return any((term in path for term in self.terms))
 
+class CompoundFilter(Filter):
+	__slots__ = 'subfilters',
+	def __init__(self, subfilters):
+		if not subfilters or not all((callable(sf) for sf in subfilters)):
+			raise ValueError(subfilters)
+		self.subfilters = subfilters
+		Filter.__init__(self, '\n'.join((str(sf) for sf in self.subfilters)))
+	def __call__(self, path, root):
+		return all((sf(path, root) for sf in self.subfilters))
 
 class ContentFilter(Filter):
 	__slots__ = 'terms',

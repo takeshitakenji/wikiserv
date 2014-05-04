@@ -137,14 +137,25 @@ class IndexHandler(tornado.web.RequestHandler):
 			self.set_status(304)
 			return False, less, more
 		return files, less, more
+
+	FILTERS = [
+		('filter', search.PathFilter),
+		('search', search.ContentFilter),
+	]
 	def get_filter_func(self):
-		try:
-			return search.PathFilter(self.get_argument('filter', None))
-		except ValueError:
+		filters = []
+		for arg, func in self.FILTERS:
 			try:
-				return search.ContentFilter(self.get_argument('search', None))
+				filters.append(func(self.get_argument(arg, None)))
 			except ValueError:
-				return None
+				continue
+		LOGGER.debug('get_filter_func => %s' % filters)
+		if not filters:
+			return None
+		elif len(filters) == 1:
+			return filters[0]
+		else:
+			return search.CompoundFilter(filters)
 	def head(self):
 		try:
 			start = int(self.get_argument('start', 0))
