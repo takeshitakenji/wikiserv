@@ -82,8 +82,8 @@ class Configuration(object):
 			self.log_level = logging.ERROR
 		if setlog:
 			logging.basicConfig(level = self.log_level)
+		self.source_dir = self.get_path(dirname(stream.name), self.xpath_single(document, '/configuration/document-root/text()').strip())
 		self.cache_dir = self.get_path(dirname(stream.name), self.xpath_single(document, '/configuration/cache/cache-dir/text()').strip())
-		self.source_dir = self.get_path(dirname(stream.name), self.xpath_single(document, '/configuration/cache/source-dir/text()').strip())
 		self.checksum_function = hashers.get_hasher( \
 			self.xpath_single(document, '/configuration/cache/checksum-function/text()').strip())
 

@@ -4,9 +4,9 @@
 	<log-level>DEBUG</log-level>
 	<bind-address>127.0.0.1</bind-address>
 	<bind-port>8888</bind-port>
+	<document-root>test_root</document-root>
 	<cache>
 		<cache-dir>test_cache</cache-dir>
-		<source-dir>test_root</source-dir>
 		<checksum-function>sha1</checksum-function>
 		<max-age>86400</max-age>
 		<max-entries>2048</max-entries>

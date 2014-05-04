@@ -35,9 +35,9 @@ Configuration
 	<log-level>DEBUG</log-level><!-- Passed to logging module -->
 	<bind-address>127.0.0.1</bind-address><!-- OPTIONAL: address to bind to -->
 	<bind-port>8080</bind-port><!-- Port to bind to -->
+	<document-root>testdata/test_root</document-root><!-- Root of directory containing files which will be procesed and served -->
 	<cache>
 		<cache-dir>testdata/test_cache</cache-dir><!-- Root of cache directory -->
-		<source-dir>testdata/test_root</source-dir><!-- Root of directory containing files which will be procesed and served -->
 		<checksum-function>sha1</checksum-function><!-- Checksum algorithm used on the files to be processed to determine cache state -->
 		<max-age>86400</max-age><!-- OPTIONAL: Whenever a scrub is performed, delete files that are older than this age (seconds) -->
 		<max-entries>2048</max-entries><!-- OPTIONAL: Use an LRU algorithm to limit the approximate maximum number of entries in the cache -->
