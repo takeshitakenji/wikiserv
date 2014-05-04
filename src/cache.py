@@ -306,13 +306,20 @@ class Cache(object):
 						self.__known_entry_count += 1
 					return entry
 			except IOError:
+				print('FOO')
 				if entry is not None:
-					entry.close()
+					try:
+						entry.close()
+					except:
+						pass
 				raise KeyError(path)
 			except:
 				if entry is not None:
-					remove(entry.name)
-					entry.close()
+					try:
+						remove(entry.name)
+						entry.close()
+					except:
+						pass
 				raise
 	def __getitem__(self, path):
 		return EntryWrapper(path, self.__get_entry)

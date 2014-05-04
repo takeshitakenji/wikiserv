@@ -275,19 +275,18 @@ try:
 		DOCUMENT_END = '\n</body>\n</html>\n'
 		FOOTER_LINK = '\n<p><a href="/">Index</a></p>\n'
 		insert_link = True
-		__slots__ = 'footer_link',
-		def __init__(self, encoding):
-			Processor.__init__(self, encoding)
-			self.footer_link = self.FOOTER_LINK.encode(encoding)
 		def process(self, inf, outf):
 			if self.DOCUMENT_START is NotImplemented or self.BACKEND is NotImplemented:
 				raise NotImplementedError
+			reader = getreader(self.header.encoding)(inf)
 			writer = getwriter(self.header.encoding)(outf)
+
 			writer.write(self.DOCUMENT_START.format(title = basename(inf.name)))
-			try:
-				markdown.markdownFromFile(input = inf, output = outf, encoding = self.header.encoding, extensions = self.EXTENSIONS, output_format = self.BACKEND)
-			finally:
-				writer.write(self.DOCUMENT_END)
+			html = markdown.markdown(reader.read(), extensions = self.EXTENSIONS, output_format = self.BACKEND, safe_mode = 'escape')
+			writer.write(html)
+			if self.insert_link:
+				writer.write(self.FOOTER_LINK)
+			writer.write(self.DOCUMENT_END)
 	class MarkdownXHTMLProcessor(MarkdownProcessor):
 		BACKEND = 'xhtml1'
 		NAME = 'markdown-xhtml1'

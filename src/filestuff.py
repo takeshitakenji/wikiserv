@@ -85,6 +85,7 @@ class File(BaseFile):
 		self.fd = open(self.path, 'rb')
 		return _File(self.fd)
 	def __exit__(self, type, value, tb):
+		LOGGER.debug('Closing file %s closed=%s' % (self.path, self.fd.closed))
 		self.fd.close()
 		self.fd = None
 		LOGGER.debug('Closed file %s' % self.path)
@@ -96,6 +97,7 @@ class LockedFile(File):
 		fcntl.lockf(self.fd, fcntl.LOCK_SH)
 		return _File(self.fd)
 	def __exit__(self, type, value, tb):
+		LOGGER.debug('Closing locked file %s closed=%s' % (self.path, self.fd.closed))
 		self.fd.flush()
 		fcntl.lockf(self.fd, fcntl.LOCK_UN)
 		self.fd.close()
@@ -109,6 +111,7 @@ class ExclusivelyLockedFile(File):
 		fcntl.lockf(self.fd, fcntl.LOCK_EX)
 		return _File(self.fd)
 	def __exit__(self, type, value, tb):
+		LOGGER.debug('Closing exclusively locked file %s closed=%s' % (self.path, self.fd.closed))
 		self.fd.flush()
 		fcntl.lockf(self.fd, fcntl.LOCK_UN)
 		self.fd.close()
