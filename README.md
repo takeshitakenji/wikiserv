@@ -39,6 +39,7 @@ Configuration
 	<bind-port>8080</bind-port><!-- Port to bind to -->
 	<document-root>testdata/test_root</document-root><!-- Root of directory containing files which will be procesed and served -->
 	<preview-lines>5</preview-lines><!-- OPTIONAL: When performing a search, show this many lines from the source document -->
+	<worker-threads>4</worker-threads><!-- OPTIONAL: Number of all-purpose worker threads to spawn.  DEFAULT: 1 -->
 	<cache>
 		<cache-dir>testdata/test_cache</cache-dir><!-- Root of cache directory -->
 		<checksum-function>sha1</checksum-function><!-- Checksum algorithm used on the files to be processed to determine cache state -->

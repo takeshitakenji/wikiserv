@@ -6,6 +6,7 @@
 	<bind-port>8888</bind-port>
 	<document-root>test_root</document-root>
 	<preview-lines>10</preview-lines>
+	<worker-threads>4</worker-threads>
 	<cache>
 		<cache-dir>test_cache</cache-dir>
 		<checksum-function>sha1</checksum-function>

@@ -87,7 +87,7 @@ class Server(object):
 
 		self.caches.update(self.get_caches(configuration, self.process_funcs(self), skip))
 		self.search = search.Search(self)
-		self.workers = worker.WorkerPool(5, autostart = True)
+		self.workers = worker.WorkerPool(configuration.worker_threads, autostart = True)
 	def __del__(self):
 		self.close()
 	def __getitem__(self, key):

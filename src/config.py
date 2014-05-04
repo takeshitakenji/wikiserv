@@ -87,6 +87,12 @@ class Configuration(object):
 			self.preview_lines = int(self.xpath_single(document, '/configuration/preview-lines/text()').strip())
 		except KeyError:
 			self.preview_lines = None
+		try:
+			self.worker_threads = int(self.xpath_single(document, '/configuration/worker-threads/text()').strip())
+			if self.worker_threads < 1:
+				raise ValueError(self.worker_threads)
+		except KeyError:
+			self.worker_threads = 1
 
 		self.cache_dir = self.get_path(dirname(stream.name), self.xpath_single(document, '/configuration/cache/cache-dir/text()').strip())
 		self.checksum_function = hashers.get_hasher( \
