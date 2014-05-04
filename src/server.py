@@ -14,16 +14,22 @@ from email.utils import format_datetime
 from shutil import copyfileobj
 from collections import namedtuple
 import itertools, functools
-from os.path import relpath
+from os.path import relpath, join as path_join, isdir
+from os import mkdir
+from codecs import getreader, getwriter
 
 LOGGER = logging.getLogger('wikiserv')
 
 
 
 class Server(object):
-	__slots__ = 'configuration', 'cache', 'processors', 'send_etags', 'search'
+	__slots__ = 'configuration', 'caches', 'processors', 'send_etags', 'search', 'preview_lines',
 	instance = None
 	ilock = Semaphore()
+	CACHE_TYPES = {
+		'document' : 'process',
+		'preview' : 'doc_head',
+	}
 	@classmethod
 	def get_instance(cls):
 		with cls.ilock:
@@ -40,10 +46,10 @@ class Server(object):
 			cls.instance.close()
 			cls.instance = None
 	@staticmethod
-	def get_cache(configuration, process):
+	def get_cache(configuration, process, subdir = None):
 		ctype = cache.DispatcherCache if configuration.dispatcher_thread else cache.Cache
 		return ctype(
-			configuration.cache_dir,
+			(path_join(configuration.cache_dir, subdir) if subdir is not None else configuration.cache_dir),
 			configuration.source_dir,
 			configuration.checksum_function,
 			process,
@@ -51,15 +57,53 @@ class Server(object):
 			configuration.max_entries,
 			configuration.auto_scrub
 		)
+	@classmethod
+	def process_funcs(cls, obj):
+		return {ctype : getattr(obj, method) for ctype, method in cls.CACHE_TYPES.items()}
+	@classmethod
+	def get_caches(cls, configuration, process_funcs, skip = frozenset()):
+		if not isdir(configuration.cache_dir):
+			mkdir(configuration.cache_dir)
+		cache.Cache.fix_dir_perms(configuration.cache_dir)
+
+		pfsrc = None
+		if hasattr(process_funcs, '__getitem__'):
+			pfsrc = lambda ctype: process_funcs[ctype]
+		else:
+			pfsrc = lambda ctype: process_funcs
+		return {ctype : cls.get_cache(configuration, pfsrc(ctype), ctype) for ctype in cls.CACHE_TYPES.keys() if not ctype in skip}
 	def __init__(self, configuration):
+		self.caches = {}
+		self.preview_lines = configuration.preview_lines
 		self.processors = configuration.processors
 		self.send_etags = configuration.send_etags
-		self.cache = self.get_cache(configuration, self.process)
+		skip = []
+		if not self.preview_lines:
+			skip.append('preview')
+		else:
+			preview_root = path_join(configuration.cache_dir, 'preview')
+			# TODO: Check runtime db variables for preview lines.  If it's different from before, then delete all of preview_root.
+
+		self.caches.update(self.get_caches(configuration, self.process_funcs(self), skip))
 		self.search = search.Search(self)
 	def __del__(self):
 		self.close()
 	def __getitem__(self, key):
 		return self.cache[key]
+	@property
+	def cache(self):
+		return self.caches['document']
+	@property
+	def preview(self):
+		return self.caches.get('preview', None)
+	def get_preview(self, path):
+		LOGGER.debug('get_preview path=%s' % path)
+		if not self.preview_lines:
+			return None
+		with self.preview[path] as preview:
+			header = processors.Processor.read_header(preview)
+			reader = getreader(header.encoding)(preview)
+			return reader.read()
 	@property
 	def default_processor(self):
 		return self.processors[None]
@@ -72,13 +116,26 @@ class Server(object):
 				return processor(inf, outf)
 		else:
 			return self.default_processor(inf, outf)
+	def doc_head(self, inf, outf):
+		LOGGER.debug('doc_head inf=%s outf=%s' % (inf, outf))
+		buff = inf.read(2048)
+		header = processors.AutoBaseProcessor.auto_header(buff)
+		if header.encoding is None:
+			raise NotImplementedError
+		inf.seek(0)
+		reader = getreader(header.encoding)(inf)
+
+		processors.Processor.write_header(outf, header)
+		writer = getwriter(header.encoding)(outf)
+		for line in itertools.islice(reader, self.preview_lines):
+			writer.write(line)
 	def close(self):
-		if self.cache is not None:
-			self.cache.close()
-			self.cache = None
-		if self.search is not None:
-			self.search.close()
-			self.search = None
+		for name, cache in self.caches.items():
+			try:
+				cache.close()
+			except:
+				LOGGER.exception('Closing cache [%s]=%s' % (name, cache))
+		self.caches.clear()
 
 
 
@@ -191,8 +248,14 @@ class IndexHandler(tornado.web.RequestHandler):
 			print('<h1>Wiki Index</h1>', file = self)
 
 		print('<ul>', file = self)
+		server = Server.get_instance() if filter_func else None
 		for f in files:
-			print('\t<li><a href="/%s">%s</a> @ %s (%f kB)</li>' % (cgi.escape(f.name, True), cgi.escape(f.name), f.modified, (float(f.size) / 1024)), file = self)
+			self.write('\t<li><a href="/%s">%s</a> @ %s (%f kB)' % (cgi.escape(f.name, True), cgi.escape(f.name), f.modified, (float(f.size) / 1024)))
+			if filter_func and server:
+				preview = server.get_preview(f.name)
+				if preview:
+					print('&nbsp;<pre style="display: block;">%s</pre>' % cgi.escape(preview), file = self)
+			print('\t</li>', file = self)
 		print('</ul>', file = self)
 		print('<p>', file = self)
 		if less:
@@ -357,5 +420,5 @@ if __name__ == '__main__':
 		def fake_process(inf, outf):
 			raise RuntimeError('Cannot serve pages in scrub mode')
 		cfg.auto_scrub = False
-		cache = Server.get_cache(cfg, fake_process)
+		Server.get_caches(cfg, fake_process)
 		# cache.scrub() is run as part of Cache constructor.

@@ -38,6 +38,7 @@ Configuration
 	<bind-address>127.0.0.1</bind-address><!-- OPTIONAL: address to bind to -->
 	<bind-port>8080</bind-port><!-- Port to bind to -->
 	<document-root>testdata/test_root</document-root><!-- Root of directory containing files which will be procesed and served -->
+	<preview-lines>5</preview-lines><!-- OPTIONAL: When performing a search, show this many lines from the source document -->
 	<cache>
 		<cache-dir>testdata/test_cache</cache-dir><!-- Root of cache directory -->
 		<checksum-function>sha1</checksum-function><!-- Checksum algorithm used on the files to be processed to determine cache state -->

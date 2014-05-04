@@ -182,6 +182,11 @@ class Cache(object):
 	file_perms = stat.S_IRUSR|stat.S_IWUSR
 
 	@classmethod
+	def fix_dir_perms(cls, path):
+		info = os.stat(path)
+		if (info.st_mode & cls.allbits) != path:
+			chmod(path, cls.root_perms)
+	@classmethod
 	def fix_perms(cls, handle):
 		info = fstat(handle.fileno())
 		if (info.st_mode & cls.allbits) != cls.root_perms:
@@ -235,9 +240,7 @@ class Cache(object):
 		# Create files
 		if not isdir(root):
 			mkdir(root)
-		info = os.stat(root)
-		if (info.st_mode & self.allbits) != self.root_perms:
-			chmod(self.__root, self.root_perms)
+		self.fix_dir_perms(self.__root)
 		with open(self.lockfile, 'wb') as lockf:
 			self.fix_perms(lockf)
 
@@ -299,7 +302,10 @@ class Cache(object):
 					if header != new_header:
 						LOGGER.debug('Calling processor for %s' % path)
 						entry.header = new_header
-						self.__filter_function(original.handle, entry)
+						try:
+							self.__filter_function(original.handle, entry)
+						except NotImplementedError:
+							pass
 					entry.seek(0)
 					if not update:
 						LOGGER.debug('Adding new entry for %s' % path)

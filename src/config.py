@@ -83,6 +83,11 @@ class Configuration(object):
 		if setlog:
 			logging.basicConfig(level = self.log_level)
 		self.source_dir = self.get_path(dirname(stream.name), self.xpath_single(document, '/configuration/document-root/text()').strip())
+		try:
+			self.preview_lines = int(self.xpath_single(document, '/configuration/preview-lines/text()').strip())
+		except KeyError:
+			self.preview_lines = None
+
 		self.cache_dir = self.get_path(dirname(stream.name), self.xpath_single(document, '/configuration/cache/cache-dir/text()').strip())
 		self.checksum_function = hashers.get_hasher( \
 			self.xpath_single(document, '/configuration/cache/checksum-function/text()').strip())
