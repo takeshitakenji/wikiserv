@@ -5,9 +5,10 @@ if sys.version_info < (3, 3):
 
 
 from queue import Queue
-from threading import Thread, Condition, Lock
+from threading import Thread, Condition, Lock, Event
 from traceback import print_exception, extract_stack, format_list
 import logging
+import os
 
 
 LOGGER = logging.getLogger(__name__)
@@ -79,37 +80,21 @@ class Job(object):
 			else:
 				return self.__result
 
-class Worker(Thread):
+class Queued(object):
 	__slots__ = '__queue',
-	def __init__(self, queue = None, autostart = False):
-		Thread.__init__(self)
+	def __init__(self, queue):
 		self.__queue = queue if queue is not None else Queue()
-		if autostart:
-			self.start()
-	def run(self):
-		LOGGER.debug('Thread %s has started' % self)
-		try:
-			while True:
-				job = self.__queue.get()
-				try:
-					job.complete(job())
-				except Finished:
-					job.complete(None)
-					break
-				except BaseException as e:
-					LOGGER.exception('Job %s in thread %s:' % (job, self))
-					print_exception(type(e), e, None, file = sys.stderr)
-					job.complete_exception(e)
-				finally:
-					self.__queue.task_done()
-		finally:
-			LOGGER.debug('Thread %s has finished' % self)
-	def __call__(self, func, *args, **kwargs):
-		return self.schedule_sync(func, *args, **kwargs)
 	def schedule(self, func, *args, **kwargs):
-		job = Job(func, *args, **kwargs)
+		if not isinstance(func, Job):
+			job = Job(func, *args, **kwargs)
+		else:
+			if args or kwargs:
+				LOGGING.warning('Cannot pass args=%s or kwargs=%s to preconstructed job' % (args, kwargs))
+			job = func
 		self.__queue.put(job)
 		return job
+	def __call__(self, func, *args, **kwargs):
+		return self.schedule_sync(func, *args, **kwargs)
 	def schedule_sync(self, func, *args, **kwargs):
 		return self.schedule(func, *args, **kwargs).wait()
 	def schedule_sync_timeout(self, timeout, func, *args, **kwargs):
@@ -122,6 +107,73 @@ class Worker(Thread):
 				return self.schedule_sync_timeout(timeout, Finished.finish)
 		else:
 			return self.schedule(Finished.finish)
+
+
+class Worker(Thread, Queued):
+	def __init__(self, queue = None, autostart = False):
+		Thread.__init__(self)
+		Queued.__init__(self, queue)
+		if autostart:
+			self.start()
+	def run(self):
+		LOGGER.debug('Thread %s has started' % self)
+		try:
+			while True:
+				job = self._Queued__queue.get()
+				try:
+					job.complete(job())
+					LOGGER.debug('Running job %s in thread %s:' % (repr(job), self))
+				except Finished:
+					job.complete(None)
+					break
+				except BaseException as e:
+					LOGGER.exception('Job %s in thread %s:' % (job, self))
+					print_exception(type(e), e, None, file = sys.stderr)
+					job.complete_exception(e)
+				finally:
+					self._Queued__queue.task_done()
+		finally:
+			LOGGER.debug('Thread %s has finished' % self)
+
+
+class WorkerPool(Queued):
+	__slots__ = '__workers',
+	def __init__(self, size, autostart = True):
+		Queued.__init__(self, None)
+		self.__workers = [Worker(self._Queued__queue, autostart) for i in range(size)]
+	def start(self):
+		for worker in self.__workers:
+			worker.start()
+	def finish(self):
+		for worker in self.__workers:
+			worker.finish()
+	def join(self):
+		for worker in self.__workers:
+			worker.join()
+
+class RWAdapter(Job):
+	__slots__ = '__method', '__read', '__write',
+	def __init__(self, method, method_inf):
+		self.__read, self.__write = os.pipe()
+		self.__read = os.fdopen(self.__read, 'rb')
+		Job.__init__(self, method, method_inf)
+	def __call__(self, method, inf):
+		with os.fdopen(self.__write, 'wb') as outf:
+			method(inf, outf)
+		self.__write = None
+	def read(self, length = None):
+		if length is None:
+			return self.__read.read(length)
+		else:
+			return self.__read.read()
+	def close_read(self):
+		self.__read.close()
+		self.__read = None
+		self.join()
+		
+				
+
+
 
 
 
@@ -173,5 +225,40 @@ if __name__ == '__main__':
 			self.assertEqual(self.count, total)
 		def test_exc(self):
 			job = self.thread.schedule(self.rexc, ValueError)
+			self.assertRaises(ValueError, job.wait)
+	class WorkerPoolTest(unittest.TestCase):
+		def process(self, incr = 1):
+			self.count += incr
+			return self.count
+		def rexc(self, etype):
+			raise etype()
+		def setUp(self):
+			self.pool = WorkerPool(5, autostart = True)
+			self.count = 0
+		def tearDown(self):
+			self.pool.finish()
+			self.pool.join()
+		def test_sync(self):
+			self.assertEqual(self.pool(self.process, 2), 2)
+			self.assertEqual(self.count, 2)
+		def test_default(self):
+			self.assertEqual(self.pool(self.process), 1)
+			self.assertEqual(self.count, 1)
+		def test_async(self):
+			job = self.pool.schedule(self.process, 1)
+			self.assertIsNotNone(job)
+			self.assertEqual(job.wait(), 1)
+			self.assertEqual(self.count, 1)
+		def test_many(self):
+			toadd = list(range(100))
+			total = sum(toadd)
+			jobs = []
+			for i in toadd:
+				jobs.append(self.pool.schedule(self.process, i))
+			self.assertTrue(all(jobs))
+			self.assertEqual(jobs[-1].wait(), total)
+			self.assertEqual(self.count, total)
+		def test_exc(self):
+			job = self.pool.schedule(self.rexc, ValueError)
 			self.assertRaises(ValueError, job.wait)
 	unittest.main()
