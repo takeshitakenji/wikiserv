@@ -49,7 +49,7 @@ class ContentFilter(Filter):
 	__slots__ = 'terms',
 	def __init__(self, string):
 		self.terms = scrub_terms(string)
-		Filter.__init__(self, 'path=%s' % ' '.join(self.terms))
+		Filter.__init__(self, 'content=%s' % ' '.join(self.terms))
 	def __call__(self, path, root):
 		LOGGER.debug('PathFilter query=%s path=%s' % (self.terms, path))
 		path = path_join(root, path)

@@ -168,8 +168,13 @@ class IndexHandler(tornado.web.RequestHandler):
 		if files is False:
 			return False
 		LOGGER.debug('Yielding %d files (more=%s, less=%s)' % (len(files), less, more))
-		xhtml_head(self, 'Index')
-		print('<h1>Wiki Index</h1>', file = self)
+		xhtml_head(self, 'Search' if filter_func else 'Index')
+		if filter_func:
+			print('<h1>Search</h1>', file = self)
+			print('<p>Terms: %s</p>' % cgi.escape(str(filter_func)), file = self)
+		else:
+			print('<h1>Wiki Index</h1>', file = self)
+
 		print('<ul>', file = self)
 		for f in files:
 			print('\t<li><a href="/%s">%s</a> @ %s (%f kB)</li>' % (cgi.escape(f.name, True), cgi.escape(f.name), f.modified, (float(f.size) / 1024)), file = self)
