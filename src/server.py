@@ -104,6 +104,7 @@ def xhtml_head(stream, title, *head):
 	print('</head>\n<body>', file = stream)
 
 def xhtml_foot(stream):
+	print('<p id="foot"><a href="/">Index</a>&nbsp;<a href=".search">Search</a></p>', file = stream)
 	print('</body>\n</html>', file = stream)
 
 
@@ -257,6 +258,21 @@ class WikiHandler(tornado.web.RequestHandler):
 			raise tornado.web.HTTPError(404)
 
 class SearchHandler(tornado.web.RequestHandler):
+	CONTENT = \
+"""<form action="/" method="GET">
+	<fieldset>
+		<legend>Search Terms</legend>
+		<div>
+			<label for="filter">Title</label>
+			<input name="filter" id="filter" />
+		</div>
+		<div>
+			<label for="search">Terms</label>
+			<input name="search" id="search" />
+		</div>
+	</fieldset>
+	<input type="submit" />
+</form>"""
 	def check_fill_headers(self):
 		self.set_header('Cache-Control', 'Public')
 		self.set_header('Content-Type', 'application/xhtml+xml; charset=UTF-8')
@@ -286,6 +302,7 @@ class SearchHandler(tornado.web.RequestHandler):
 		if not self.check_fill_headers():
 			return
 		xhtml_head(self, 'Search')
+		print(self.CONTENT, file = self)
 		xhtml_foot(self)
 
 class SkipHandler(tornado.web.RequestHandler):
