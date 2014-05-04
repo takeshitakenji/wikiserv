@@ -232,7 +232,7 @@ class WikiHandler(tornado.web.RequestHandler):
 			self.set_status(304)
 			return False
 		elif server.send_etags and self.check_etag_header():
-			LOGGER.debug('Returning 304 from etags time')
+			LOGGER.debug('Returning 304 from etags')
 			self.set_status(304)
 			return False
 		return True
@@ -256,6 +256,37 @@ class WikiHandler(tornado.web.RequestHandler):
 		except KeyError:
 			raise tornado.web.HTTPError(404)
 
+class SearchHandler(tornado.web.RequestHandler):
+	def check_fill_headers(self):
+		self.set_header('Cache-Control', 'Public')
+		self.set_header('Content-Type', 'application/xhtml+xml; charset=UTF-8')
+		prev_mtime = None
+		try:
+			prev_mtime = date_parse(self.request.headers['If-Modified-Since'])
+			if prev_mtime.tzinfo is None:
+				prev_mtime = prev_mtime.replace(tzinfo = utc)
+			LOGGER.debug('Found If-Modified-Since=%s' % prev_mtime)
+		except KeyError:
+			pass
+		with filestuff.File(__file__) as info:
+			mtime = info.modified
+		self.set_header('Last-Modified', format_datetime(mtime))
+		if prev_mtime is not None and mtime <= prev_mtime:
+			LOGGER.debug('Returning 304 from modification time')
+			self.set_status(304)
+			return False
+		elif self.check_etag_header():
+			LOGGER.debug('Returning 304 from etags')
+			self.set_status(304)
+			return False
+		return True
+	def head(self):
+		self.check_fill_headers()
+	def get(self):
+		if not self.check_fill_headers():
+			return
+		xhtml_head(self, 'Search')
+		xhtml_foot(self)
 
 class SkipHandler(tornado.web.RequestHandler):
 	def head(self):
@@ -265,6 +296,7 @@ class SkipHandler(tornado.web.RequestHandler):
 
 application = tornado.web.Application([
 	(r'^/$', IndexHandler),
+	(r'^/\.search$', SearchHandler),
 	(r'^/.*\brobots\.txt$', SkipHandler),
 	(r'^/.*\bfavicon\.ico$', SkipHandler),
 	(r'^/(.+)$', WikiHandler),
