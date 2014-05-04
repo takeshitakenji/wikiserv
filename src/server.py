@@ -39,19 +39,22 @@ class Server(object):
 		with cls.ilock:
 			cls.instance.close()
 			cls.instance = None
-	def __init__(self, configuration):
-		self.processors = configuration.processors
-		self.send_etags = configuration.send_etags
+	@staticmethod
+	def get_cache(configuration, process):
 		ctype = cache.DispatcherCache if configuration.dispatcher_thread else cache.Cache
-		self.cache = ctype(
+		return ctype(
 			configuration.cache_dir,
 			configuration.source_dir,
 			configuration.checksum_function,
-			self.process,
+			process,
 			configuration.max_age,
 			configuration.max_entries,
 			configuration.auto_scrub
 		)
+	def __init__(self, configuration):
+		self.processors = configuration.processors
+		self.send_etags = configuration.send_etags
+		self.cache = self.get_cache(configuration, self.process)
 		self.search = search.Search(self)
 	def __del__(self):
 		self.close()
@@ -324,6 +327,7 @@ if __name__ == '__main__':
 
 	parser = ArgumentParser('%(proc)s [ options ] -c config.xml ')
 	parser.add_argument('--config', '-c', required = True, dest = 'configuration', help = 'XML configuration file')
+	parser.add_argument('--scrub', dest = 'scrub_only', action = 'store_true', default = False, help = 'Instead of running the server, just do a cache scrub')
 
 	args = parser.parse_args()
 
@@ -331,9 +335,16 @@ if __name__ == '__main__':
 	with open(args.configuration, 'rb') as f:
 		cfg = config.Configuration(f, setlog = True)
 
-	Server.set_instance(cfg)
-	try:
-		application.listen(cfg.bind_port, cfg.bind_address)
-		tornado.ioloop.IOLoop.instance().start()
-	finally:
-		Server.close_instance()
+	if not args.scrub_only:
+		Server.set_instance(cfg)
+		try:
+			application.listen(cfg.bind_port, cfg.bind_address)
+			tornado.ioloop.IOLoop.instance().start()
+		finally:
+			Server.close_instance()
+	else:
+		def fake_process(inf, outf):
+			raise RuntimeError('Cannot serve pages in scrub mode')
+		cfg.auto_scrub = False
+		cache = Server.get_cache(cfg, fake_process)
+		# cache.scrub() is run as part of Cache constructor.
