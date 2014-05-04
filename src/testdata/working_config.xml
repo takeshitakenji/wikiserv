@@ -13,10 +13,7 @@
 	</cache>
 	<processors>
 		<encoding>utf8</encoding>
-		<processor>asciidoc-xhtml11</processor>
-		<processor mime-type="image/png" extensions = "png">raw</processor>
-		<processor mime-type="image/jpeg" extensions = "jpg jif jfif jpeg">raw</processor>
-		<processor mime-type="image/gif" extensions = "gif">raw</processor>
-		<processor mime-type="image/bmp" extensions = "bmp">raw</processor>
+		<processor>autoraw</processor>
+		<processor extensions="txt">asciidoc-xhtml11</processor>
 	</processors>
 </configuration>

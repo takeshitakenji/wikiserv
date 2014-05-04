@@ -19,8 +19,10 @@ Requirements
 2. [pytz](http://pytz.sourceforge.net/)
 3. [python-dateutil](http://labix.org/python-dateutil)
 4. [lxml](http://lxml.de/)
-5. [tornado](http://www.tornadoweb.org/)
-6. An OS that supports the built-in [fcntl](http://docs.python.org/3.3/library/fcntl.html) module
+5. [chardet](http://pypi.python.org/pypi/chardet)
+6. [python-magic](http://github.com/ahupp/python-magic)
+7. [tornado](http://www.tornadoweb.org/)
+8. An OS that supports the built-in [fcntl](http://docs.python.org/3.3/library/fcntl.html) module
 
 Configuration
 -------------

@@ -10,6 +10,7 @@ from os.path import pathsep, join as path_join, normpath, isfile, basename
 import logging
 from subprocess import Popen, CalledProcessError, PIPE
 from shutil import copyfileobj
+import magic, chardet
 
 
 LOGGER = logging.getLogger(__name__)
@@ -70,21 +71,20 @@ else:
 		raise ValueError(executable)
 
 
-
-
-class Processor(object):
-	processors = {}
-	NAME = NotImplemented
-	MIME = NotImplemented
-
+class BaseProcessor(object):
 	Header = namedtuple('Header', ['encoding', 'mime'])
 	length_format = '!B'
 	length_length = 1
 
+	NAME = NotImplemented
+	MIME = NotImplemented
+
+	processors = {}
 	@classmethod
 	def register(cls):
 		if any((x is NotImplemented for x in [cls.NAME, cls.MIME])):
 			raise RuntimeError('Class %s is not set up properly' % cls)
+		LOGGER.debug('Registered processor [%s] = %s' % (cls.NAME, cls))
 		cls.processors[cls.NAME] = cls
 	@classmethod
 	def available_processors(cls):
@@ -92,48 +92,17 @@ class Processor(object):
 	@classmethod
 	def get_processor(cls, name):
 		return cls.processors[name]
-
 	@classmethod
-	def call_process(cls, args, inf, outf):
-		p = Popen(args, stdin = inf, stdout = PIPE)
-		try:
-			# This is needed because the header will be overwritten otherwise.
-			copyfileobj(p.stdout, outf)
-			p.stdout.close()
-			p.wait()
-		except:
-			p.terminate()
-			p.wait()
-			raise
-		finally:
-			if p.returncode != 0:
-				raise CalledProcessError('%s exited with %s' % (args[0], p.returncode))
-	
-	def __init__(self, encoding):
-		if len(self.mime_type) > 0xFF:
-			raise ValueError('MIME type is too long: %s' % self.mime_type)
-		if encoding is not None and len(encoding) > 0xFF:
-			raise ValueError('Character encoding is too long: %s' % self.encoding)
-		# Verify they are ASCII
-		self.mime_type.encode('ascii')
-		if encoding is not None:
-			encoding.encode('ascii')
-			b''.decode(encoding)
-		
-		self.header = self.Header(encoding, self.mime_type)
-	@property
-	def mime_type(self):
-		return self.MIME
-	def write_header(self, stream):
+	def write_header(self, stream, header):
 		count = 0
-		if self.header.encoding is not None:
-			encoding = self.header.encoding.encode('ascii')
+		if header.encoding is not None:
+			encoding = header.encoding.encode('ascii')
 			count += stream.write(struct.pack(self.length_format, len(encoding)))
 			count += stream.write(encoding)
 		else:
 			count += stream.write(struct.pack(self.length_format, 0))
 
-		mime = self.header.mime.encode('ascii')
+		mime = header.mime.encode('ascii')
 		count += stream.write(struct.pack(self.length_format, len(mime)))
 		count += stream.write(mime)
 		return count
@@ -151,7 +120,44 @@ class Processor(object):
 	def process(self, inf, outf):
 		raise NotImplementedError
 	def __call__(self, inf, outf):
-		self.write_header(outf)
+		return self.process(inf, outf)
+
+
+class Processor(BaseProcessor):
+	@classmethod
+	def call_process(cls, args, inf, outf):
+		p = Popen(args, stdin = inf, stdout = PIPE)
+		try:
+			# This is needed because the header will be overwritten otherwise.
+			copyfileobj(p.stdout, outf)
+			p.stdout.close()
+			p.wait()
+		except:
+			p.terminate()
+			p.wait()
+			raise
+		finally:
+			if p.returncode != 0:
+				raise CalledProcessError('%s exited with %s' % (args[0], p.returncode))
+	
+	def __init__(self, encoding):
+		BaseProcessor.__init__(self)
+		if len(self.mime_type) > 0xFF:
+			raise ValueError('MIME type is too long: %s' % self.mime_type)
+		if encoding is not None and len(encoding) > 0xFF:
+			raise ValueError('Character encoding is too long: %s' % self.encoding)
+		# Verify they are ASCII
+		self.mime_type.encode('ascii')
+		if encoding is not None:
+			encoding.encode('ascii')
+			b''.decode(encoding)
+		
+		self.header = self.Header(encoding, self.mime_type)
+	@property
+	def mime_type(self):
+		return self.MIME
+	def __call__(self, inf, outf):
+		self.write_header(outf, self.header)
 		return self.process(inf, outf)
 
 
@@ -167,6 +173,35 @@ class RawProcessor(Processor):
 	def mime_type(self):
 		return self.mime
 RawProcessor.register()
+
+
+class AutoBaseProcessor(BaseProcessor):
+	def __init__(self, encoding):
+		BaseProcessor.__init__(self)
+	def process(self, inf, outf):
+		copyfileobj(inf, outf)
+	def __call__(self, inf, outf):
+		try:
+			buff = inf.read(2048)
+
+			mime_type = magic.from_buffer(buff, mime = True).decode('ascii')
+			cinfo = chardet.detect(buff)
+
+			encoding = cinfo['encoding'] if cinfo['confidence'] > 0.75 else None
+
+			LOGGER.debug('Detected encoding=%s mime_type=%s' % (encoding, mime_type))
+			header = self.Header(encoding, mime_type)
+			self.write_header(outf, header)
+		finally:
+			inf.seek(0)
+		return self.process(inf, outf)
+
+class AutoRawProcessor(AutoBaseProcessor):
+	NAME = 'autoraw'
+	MIME = None
+	def process(self, inf, outf):
+		copyfileobj(inf, outf)
+AutoRawProcessor.register()
 
 
 try:
@@ -213,7 +248,11 @@ def available_processors():
 
 def get_processor(name):
 	LOGGER.debug('Getting processor %s' % name)
-	return Processor.get_processor(name)
+	try:
+		return Processor.get_processor(name)
+	except:
+		LOGGER.exception('On attempting to get processor %s from %s' % (name, Processor.available_processors()))
+		raise
 
 
 if __name__ == '__main__':
