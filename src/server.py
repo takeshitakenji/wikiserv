@@ -324,16 +324,27 @@ application = tornado.web.Application([
 
 if __name__ == '__main__':
 	from argparse import ArgumentParser
+	def positive_int(s):
+		s = int(s)
+		if s < 1:
+			raise ValueError(s)
+		return s
 
 	parser = ArgumentParser('%(proc)s [ options ] -c config.xml ')
-	parser.add_argument('--config', '-c', required = True, dest = 'configuration', help = 'XML configuration file')
+	parser.add_argument('--config', '-c', required = True, metavar = 'CONFIG.XML', dest = 'configuration', help = 'XML configuration file')
 	parser.add_argument('--scrub', dest = 'scrub_only', action = 'store_true', default = False, help = 'Instead of running the server, just do a cache scrub')
+	parser.add_argument('--bind-address', dest = 'bind_address', metavar = 'ADDRESS', help = 'Bind to ADDRESS instead of the address specified in configuration')
+	parser.add_argument('--bind-port', dest = 'bind_port', metavar = 'ADDRESS', type = positive_int, help = 'Bind to ADDRESS instead of the port specified in configuration')
 
 	args = parser.parse_args()
 
 	cfg = None
 	with open(args.configuration, 'rb') as f:
 		cfg = config.Configuration(f, setlog = True)
+	if args.bind_address is not None:
+		cfg.bind_address = args.bind_address
+	if args.bind_port is not None:
+		cfg.bind_port = args.bind_port
 
 	if not args.scrub_only:
 		Server.set_instance(cfg)
