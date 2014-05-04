@@ -13,7 +13,6 @@
 	</cache>
 	<processors>
 		<encoding>utf8</encoding>
-		<processor>autoraw</processor>
 		<processor extensions="txt">asciidoc-xhtml11</processor>
 	</processors>
 </configuration>
