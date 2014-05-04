@@ -13,6 +13,16 @@ from collections import namedtuple
 LOGGER = logging.getLogger('wikiserv')
 
 
+def scrub_terms(string):
+	if not string:
+		raise ValueError(string)
+	terms = (x.strip().lower() for x in string.split())
+	# Clean up the mess
+	terms = tuple(sorted(set((x for x in terms if x))))
+	if not terms:
+		raise ValueError(string)
+	return terms
+
 class Filter(object):
 	__slots__ = '__string',
 	def __init__(self, string):
@@ -27,18 +37,16 @@ class Filter(object):
 class PathFilter(Filter):
 	__slots__ = 'terms',
 	def __init__(self, string):
-		if not string:
-			raise ValueError(string)
-		terms = (x.strip().lower() for x in string.split())
-		# Clean up the mess
-		self.terms = tuple(sorted(set((x for x in terms if x))))
-		if not self.terms:
-			raise ValueError(string)
+		self.terms = scrub_terms(string)
 		Filter.__init__(self, 'path=%s' % ' '.join(self.terms))
 	def __call__(self, path):
 		path = path.lower()
 		LOGGER.debug('PathFilter query=%s path=%s' % (self.terms, path))
 		return any((term in path for term in self.terms))
+
+
+class ContentFilter(Filter):
+	__slots__ = 'terms',
 
 class Search(object):
 	Info = namedtuple('Info', ['name', 'modified', 'size'])
