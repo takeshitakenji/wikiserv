@@ -33,6 +33,8 @@ Configuration
 
 <configuration>
 	<log-level>DEBUG</log-level><!-- Passed to logging module -->
+	<bind-address>127.0.0.1</bind-address><!-- OPTIONAL: address to bind to -->
+	<bind-port>8080</bind-port><!-- Port to bind to -->
 	<cache>
 		<cache-dir>testdata/test_cache</cache-dir><!-- Root of cache directory -->
 		<source-dir>testdata/test_root</source-dir><!-- Root of directory containing files which will be procesed and served -->

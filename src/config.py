@@ -88,6 +88,13 @@ class Configuration(object):
 			self.xpath_single(document, '/configuration/cache/checksum-function/text()').strip())
 
 		try:
+			self.bind_address = self.xpath_single(document, '/configuration/bind-address/text()').strip()
+		except KeyError:
+			self.bind_address = ''
+
+		self.bind_port = int(self.xpath_single(document, '/configuration/bind-port/text()').strip())
+
+		try:
 			self.max_age = timedelta(seconds = positive_int(self.xpath_single(document, '/configuration/cache/max-age/text()')))
 		except KeyError:
 			self.max_age = None

@@ -132,7 +132,7 @@ class IndexHandler(tornado.web.RequestHandler):
 		newest = max(files, key = lambda x: x.modified)
 		self.set_header('Last-Modified', format_datetime(newest.modified))
 		self.set_header('Cache-Control', ('no-cache' if filter_func else 'Public'))
-		if prev_mtime is not None and newest.modified <= prev_mtime:
+		if prev_mtime is not None and newest.modified.replace(microsecond = 0) <= prev_mtime:
 			LOGGER.debug('Returning 304 from modification time')
 			self.set_status(304)
 			return False, less, more
@@ -177,7 +177,7 @@ class IndexHandler(tornado.web.RequestHandler):
 		LOGGER.debug('HEAD INDEX start=%d filter_func=%s' % (start, filter_func))
 		files, less, more = self.check_fill_headers(start, filter_func)
 		if files is False:
-			return False
+			return
 		LOGGER.debug('Yielding %d files (more=%s, less=%s)' % (len(files), less, more))
 		xhtml_head(self, 'Search' if filter_func else 'Index')
 		if filter_func:
@@ -227,7 +227,7 @@ class WikiHandler(tornado.web.RequestHandler):
 			self.set_header('Content-Type', '%s; charset=%s' % (content_header.mime, content_header.encoding))
 		else:
 			self.set_header('Content-Type', content_header.mime)
-		if prev_mtime is not None and entry.header.timestamp <= prev_mtime:
+		if prev_mtime is not None and entry.header.timestamp.replace(microsecond = 0) <= prev_mtime:
 			LOGGER.debug('Returning 304 from modification time')
 			self.set_status(304)
 			return False
@@ -271,7 +271,7 @@ class SearchHandler(tornado.web.RequestHandler):
 		with filestuff.File(__file__) as info:
 			mtime = info.modified
 		self.set_header('Last-Modified', format_datetime(mtime))
-		if prev_mtime is not None and mtime <= prev_mtime:
+		if prev_mtime is not None and mtime.replace(microsecond = 0) <= prev_mtime:
 			LOGGER.debug('Returning 304 from modification time')
 			self.set_status(304)
 			return False
@@ -316,7 +316,7 @@ if __name__ == '__main__':
 
 	Server.set_instance(cfg)
 	try:
-		application.listen(8888)
+		application.listen(cfg.bind_port, cfg.bind_address)
 		tornado.ioloop.IOLoop.instance().start()
 	finally:
 		Server.close_instance()

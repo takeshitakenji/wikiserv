@@ -1,6 +1,8 @@
 <?xml version="1.0" ?>
 
 <configuration>
+	<bind-address>127.0.0.1</bind-address>
+	<bind-port>8080</bind-port>
 	<cache>
 		<cache-dir>example-cache</cache-dir>
 		<source-dir>example-source</source-dir>
