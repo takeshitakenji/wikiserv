@@ -49,7 +49,7 @@ class PathFilter(Filter):
 class CompoundFilter(Filter):
 	__slots__ = 'subfilters',
 	def __init__(self, subfilters):
-		if not subfilters or not all((callable(sf) for sf in subfilters)):
+		if not subfilters or not all((callable(sf) for sf in subfilters)) or any((isinstance(sf, CompoundFilter) for sf in subfilters)):
 			raise ValueError(subfilters)
 		self.subfilters = subfilters
 		strings = sorted({str(sf) for sf in self.subfilters})
