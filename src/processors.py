@@ -180,17 +180,18 @@ class AutoBaseProcessor(BaseProcessor):
 		BaseProcessor.__init__(self)
 	def process(self, inf, outf):
 		copyfileobj(inf, outf)
+	@classmethod
+	def auto_header(cls, buff):
+		mime_type = magic.from_buffer(buff, mime = True).decode('ascii')
+		cinfo = chardet.detect(buff)
+
+		encoding = cinfo['encoding'] if cinfo['confidence'] > 0.75 else None
+
+		LOGGER.debug('Detected encoding=%s mime_type=%s' % (encoding, mime_type))
+		return cls.Header(encoding, mime_type)
 	def __call__(self, inf, outf):
 		try:
-			buff = inf.read(2048)
-
-			mime_type = magic.from_buffer(buff, mime = True).decode('ascii')
-			cinfo = chardet.detect(buff)
-
-			encoding = cinfo['encoding'] if cinfo['confidence'] > 0.75 else None
-
-			LOGGER.debug('Detected encoding=%s mime_type=%s' % (encoding, mime_type))
-			header = self.Header(encoding, mime_type)
+			header = self.auto_header(inf.read(2048))
 			self.write_header(outf, header)
 		finally:
 			inf.seek(0)
