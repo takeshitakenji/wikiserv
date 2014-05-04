@@ -147,7 +147,10 @@ class IndexHandler(tornado.web.RequestHandler):
 		try:
 			filter_func = search.PathFilter(self.get_argument('filter', None))
 		except ValueError:
-			filter_func = None
+			try:
+				filter_func = search.ContentFilter(self.get_argument('search', None))
+			except ValueError:
+				filter_func = None
 		LOGGER.debug('HEAD INDEX start=%d filter_func=%s' % (start, filter_func))
 		self.check_fill_headers(start, filter_func)
 	def get(self):
@@ -160,7 +163,10 @@ class IndexHandler(tornado.web.RequestHandler):
 		try:
 			filter_func = search.PathFilter(self.get_argument('filter', None))
 		except ValueError:
-			filter_func = None
+			try:
+				filter_func = search.ContentFilter(self.get_argument('search', None))
+			except ValueError:
+				filter_func = None
 		LOGGER.debug('HEAD INDEX start=%d filter_func=%s' % (start, filter_func))
 		files, less, more = self.check_fill_headers(start, filter_func)
 		if files is False:
