@@ -36,7 +36,7 @@ else:
 	import grp, pwd
 	def get_user_groups(current_uid):
 		current_user = pwd.getpwuid(current_uid)
-		groups = set((g.gr_gid for g in grp.getgrall() if current_user.pw_name in g.gr_mem))
+		groups = {g.gr_gid for g in grp.getgrall() if current_user.pw_name in g.gr_mem}
 		gid = current_user.pw_gid
 		groups.add(gid)
 		return frozenset(groups)

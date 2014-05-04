@@ -18,7 +18,7 @@ def scrub_terms(string):
 		raise ValueError(string)
 	terms = (x.strip().lower() for x in string.split())
 	# Clean up the mess
-	terms = tuple(sorted(set((x for x in terms if x))))
+	terms = tuple(sorted({x for x in terms if x}))
 	if not terms:
 		raise ValueError(string)
 	return terms
@@ -52,7 +52,8 @@ class CompoundFilter(Filter):
 		if not subfilters or not all((callable(sf) for sf in subfilters)):
 			raise ValueError(subfilters)
 		self.subfilters = subfilters
-		Filter.__init__(self, '\n'.join((str(sf) for sf in self.subfilters)))
+		strings = sorted({str(sf) for sf in self.subfilters})
+		Filter.__init__(self, '\t'.join(strings))
 	def __call__(self, path, root):
 		return all((sf(path, root) for sf in self.subfilters))
 
