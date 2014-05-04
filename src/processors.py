@@ -148,6 +148,7 @@ class Processor(BaseProcessor):
 			if p.returncode != 0:
 				raise CalledProcessError('%s exited with %s' % (args[0], p.returncode))
 	
+	__slots__ = 'header',
 	def __init__(self, encoding):
 		BaseProcessor.__init__(self)
 		if len(self.mime_type) > 0xFF:
@@ -172,6 +173,7 @@ class Processor(BaseProcessor):
 class RawProcessor(Processor):
 	NAME = 'raw'
 	MIME = None
+	__slots__ = 'mime',
 	def __init__(self, mime, encoding):
 		self.mime = mime
 		Processor.__init__(self, None)
@@ -218,8 +220,12 @@ try:
 	class AsciidocProcessor(Processor):
 		BACKEND = NotImplemented
 		ATTRIBUTES = []
-		LINK = '\n\'\'\'\'\nlink:/[Index]\n'
+		FOOTER_LINK = '\n\'\'\'\'\nlink:/[Index]\n'
 		insert_link = True
+		__slots__ = 'footer_link',
+		def __init__(self, encoding):
+			Processor.__init__(self, encoding)
+			self.footer_link = self.FOOTER_LINK.encode(encoding)
 		def process(self, inf, outf):
 			if self.BACKEND is NotImplemented:
 				raise NotImplementedError
@@ -230,7 +236,7 @@ try:
 			if self.insert_link:
 				with TemporaryFile('r+b') as tmp:
 					copyfileobj(inf, tmp)
-					tmp.write(self.LINK.encode(self.header.encoding))
+					tmp.write(self.footer_link)
 					tmp.flush()
 					tmp.seek(0)
 					self.call_process(args, tmp, outf)
