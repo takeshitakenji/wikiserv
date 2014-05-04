@@ -11,6 +11,7 @@ import logging
 from subprocess import Popen, CalledProcessError, PIPE
 from shutil import copyfileobj
 import magic, chardet
+from tempfile import TemporaryFile
 
 
 LOGGER = logging.getLogger(__name__)
@@ -125,9 +126,16 @@ class BaseProcessor(object):
 
 class Processor(BaseProcessor):
 	@classmethod
-	def call_process(cls, args, inf, outf):
-		p = Popen(args, stdin = inf, stdout = PIPE)
+	def call_process(cls, args, inf, outf, copy_in = False):
+		p = None
+		if copy_in:
+			p = Popen(args, stdin = PIPE, stdout = PIPE)
+		else:
+			p = Popen(args, stdin = inf, stdout = PIPE)
 		try:
+			if copy_in:
+				copyfileobj(inf, p.stdin)
+				p.stdin.close()
 			# This is needed because the header will be overwritten otherwise.
 			copyfileobj(p.stdout, outf)
 			p.stdout.close()
@@ -210,6 +218,8 @@ try:
 	class AsciidocProcessor(Processor):
 		BACKEND = NotImplemented
 		ATTRIBUTES = []
+		LINK = '\n\'\'\'\'\nlink:/[Index]\n'
+		insert_link = True
 		def process(self, inf, outf):
 			if self.BACKEND is NotImplemented:
 				raise NotImplementedError
@@ -217,7 +227,15 @@ try:
 			for attr in self.ATTRIBUTES:
 				args += ['-a', attr]
 			args.append('-')
-			self.call_process(args, inf, outf)
+			if self.insert_link:
+				with TemporaryFile('r+b') as tmp:
+					copyfileobj(inf, tmp)
+					tmp.write(self.LINK.encode(self.header.encoding))
+					tmp.flush()
+					tmp.seek(0)
+					self.call_process(args, tmp, outf)
+			else:
+				self.call_process(args, inf, outf)
 	class AsciidocXHTMLProcessor(AsciidocProcessor):
 		BACKEND = 'xhtml11'
 		NAME = 'asciidoc-xhtml11'
