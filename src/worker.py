@@ -10,6 +10,7 @@ import threading
 from traceback import print_exception, extract_stack, format_list
 import logging
 import os, uuid
+from time import sleep
 
 
 LOGGER = logging.getLogger(__name__)
@@ -167,25 +168,27 @@ class RWAdapter(Job):
 	__slots__ = '__method', '__read', '__write',
 	def __init__(self, method):
 		self.__read, self.__write = os.pipe()
+		LOGGER.debug('Created RWAdapter with w%s -> r%s' % (self.__write, self.__read))
 		self.__read = os.fdopen(self.__read, 'rb')
 		Job.__init__(self, self.run, method)
 	def run(self, method):
 		try:
 			with os.fdopen(self.__write, 'wb') as outf:
 				method(outf)
+				LOGGER.debug('Successfully called method')
+				outf.flush()
 		except IOError:
-			pass
+			LOGGER.exception('Calling method')
 		finally:
 			self.__write = None
 	def read(self, length = None):
 		if length is None:
-			return self.__read.read(length)
-		else:
 			return self.__read.read()
+		else:
+			return self.__read.read(length)
 	def close_read(self):
 		self.__read.close()
 		self.__read = None
-		self.join()
 	def __enter__(self):
 		return self
 	def __exit__(self, type, value, tb):
@@ -307,5 +310,32 @@ if __name__ == '__main__':
 					self.assertEqual(TEXT, text)
 				finally:
 					job.wait()
+		def test_multi_copy(self):
+			TEXT = b'abcde'
+			with TemporaryFile('w+b') as tmp:
+				tmp.write(TEXT)
+				tmp.write(TEXT)
+				tmp.flush()
+				tmp.seek(0)
+				job = RWAdapter(functools.partial(self.process, tmp))
+				self.thread.schedule(job)
+				try:
+					text = job.read(len(TEXT))
+					self.assertEqual(TEXT, text)
+
+					text = job.read(len(TEXT))
+					self.assertEqual(TEXT, text)
+				finally:
+					job.wait()
+	class PipeTest(unittest.TestCase):
+		def test_pipe(self):
+			r, w = os.pipe()
+			with os.fdopen(w, 'w') as f:
+				f.write('foo bar')
+				f.write('cow baz')
+
+			with os.fdopen(r, 'r') as f:
+				self.assertEqual('foo bar', f.read(7))
+				self.assertEqual('cow baz', f.read(7))
 
 	unittest.main()

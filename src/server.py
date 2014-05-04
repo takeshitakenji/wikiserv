@@ -283,7 +283,7 @@ class IndexHandler(tornado.web.RequestHandler):
 class WikiHandler(tornado.web.RequestHandler):
 	def compute_etag(self):
 		return None
-	def check_fill_headers(self, entry):
+	def check_fill_headers(self, entry, header = None):
 		LOGGER.debug('Getting headers for request')
 		prev_mtime = None
 		server = Server.get_instance()
@@ -294,16 +294,20 @@ class WikiHandler(tornado.web.RequestHandler):
 			LOGGER.debug('Found If-Modified-Since=%s' % prev_mtime)
 		except KeyError:
 			pass
+		if header is None:
+			header = entry.header
 		if server.send_etags:
-			self.set_header('Etag', '"%s"' % binascii.hexlify(entry.header.checksum).decode('ascii'))
-		self.set_header('Last-Modified', format_datetime(entry.header.timestamp))
+			checksum = header.checksum
+			if checksum:
+				self.set_header('Etag', '"%s"' % binascii.hexlify(checksum).decode('ascii'))
+		self.set_header('Last-Modified', format_datetime(header.timestamp))
 		self.set_header('Cache-Control', 'Public')
 		content_header = processors.Processor.read_header(entry)
 		if content_header.encoding:
 			self.set_header('Content-Type', '%s; charset=%s' % (content_header.mime, content_header.encoding))
 		else:
 			self.set_header('Content-Type', content_header.mime)
-		if prev_mtime is not None and entry.header.timestamp.replace(microsecond = 0) <= prev_mtime:
+		if prev_mtime is not None and header.timestamp.replace(microsecond = 0) <= prev_mtime:
 			LOGGER.debug('Returning 304 from modification time')
 			self.set_status(304)
 			return False
@@ -315,16 +319,18 @@ class WikiHandler(tornado.web.RequestHandler):
 	def head(self, path):
 		LOGGER.debug('HEAD %s' % path)
 		try:
-			wrap = Server.get_instance().cache[path]
+			server = Server.get_instance()
+			wrap = server.cache[path]
 			with wrap as entry:
 				if isinstance(entry, cache.AutoProcess):
 					# NoCache
 					reader = worker.RWAdapter(entry)
+					server.workers.schedule(reader)
 					try:
 						with reader:
-							self.check_fill_headers(reader)
+							self.check_fill_headers(reader, entry.header)
 					finally:
-						reader.join()
+						reader.wait()
 
 				else:
 					self.check_fill_headers(entry)
@@ -333,18 +339,20 @@ class WikiHandler(tornado.web.RequestHandler):
 	def get(self, path):
 		LOGGER.debug('GET %s' % path)
 		try:
-			wrap = Server.get_instance().cache[path]
+			server = Server.get_instance()
+			wrap = server.cache[path]
 			with wrap as entry:
 				if isinstance(entry, cache.AutoProcess):
 					# NoCache
 					reader = worker.RWAdapter(entry)
+					server.workers.schedule(reader)
 					try:
 						with reader:
-							if not self.check_fill_headers(reader):
+							if not self.check_fill_headers(reader, entry.header):
 								return
 							copyfileobj(reader, self)
 					finally:
-						reader.join()
+						reader.wait()
 				else:
 					if not self.check_fill_headers(entry):
 						return

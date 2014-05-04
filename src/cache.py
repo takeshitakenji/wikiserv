@@ -72,6 +72,7 @@ class EntryHeader(object):
 		try:
 			size, cached, seconds, microseconds, cksum_len = struct.unpack(cls.struct_fmt, buff[len(cls.MAGIC):])
 		except struct.error:
+			LOGGER.exception('When reading %s' % stream)
 			raise IOError
 		timestamp = cls.fp2datetime(seconds, microseconds, utc)
 		checksum = None
@@ -183,19 +184,24 @@ class FileLock(object):
 
 
 class NoCache(Exception):
-	def __init__(self, header):
-		Exception.__init__(self)
-		self.header = header
+	pass
 
 
 class AutoProcess(object):
-	__slots__ = '__inf', '__method',
-	def __init__(self, inf, method):
+	__slots__ = '__inf', '__method', '__header'
+	def __init__(self, header, inf, method):
+		self.__header = header
 		self.__inf = inf
 		self.__method = method
+	@property
+	def header(self):
+		return self.__header
 	def __call__(self, outf):
+		LOGGER.debug('Autprocess executing')
 		with self.__inf as inf:
-			return self.__method(inf, outf, False)
+			return self.__method(inf.handle, outf, False)
+	def close(self):
+		pass
 
 
 class Cache(object):
@@ -322,12 +328,12 @@ class Cache(object):
 					entry = Entry(handle)
 
 					header = entry.header
+					new_header = EntryHeader(original.size, True, original.modified, original.checksum(self.__checksum_function))
 					if header is not None and not header.cached:
 						LOGGER.debug('Not cached for %s' % path)
 						# The lock will be acquired after original has been freed
 						entry.header = EntryHeader(new_header.size, False, new_header.timestamp, new_header.checksum)
-						return AutoProcess(filestuff.LockedFile(original_path), self.__filter_function)
-					new_header = EntryHeader(original.size, True, original.modified, original.checksum(self.__checksum_function))
+						return AutoProcess(entry.header, filestuff.LockedFile(original_path), self.__filter_function)
 					if header != new_header:
 						LOGGER.debug('Calling processor for %s' % path)
 						try:
@@ -342,7 +348,7 @@ class Cache(object):
 							except:
 								LOGGER.exception('When closing entry %s' % entry.header)
 						# The lock will be acquired after original has been freed
-							return AutoProcess(filestuff.LockedFile(original_path), self.__filter_function)
+							return AutoProcess(entry.header, filestuff.LockedFile(original_path), self.__filter_function)
 						except NotImplementedError:
 							entry.header = new_header
 					entry.seek(0)

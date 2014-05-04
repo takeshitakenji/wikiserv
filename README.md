@@ -51,7 +51,7 @@ Configuration
 	<processors>
 		<encoding>utf8</encoding><!-- Output encoding passed to all the processors -->
 		<processor>asciidoc-xhtml11</processor><!-- OPTIONAL: Sets the default processor used to convert files to HTML -->
-		<!-- If no default processor is specified, the 'autoraw' processor is used -->
+		<!-- If no default processor is specified, the 'autoraw-nocache' processor is used -->
 		<processor extensions="txt foo">asciidoc-xhtml11</processor><!-- For the extensions txt and foo, use this processor to convert -->
 		<processor extensions="bar">asciidoc-html5</processor><!-- For the extensions bar, used asciidoc-html5 instead -->
 	</processors>

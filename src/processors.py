@@ -14,7 +14,7 @@ import magic, chardet
 from tempfile import TemporaryFile
 from codecs import getreader, getwriter
 from time import sleep
-
+import cache
 
 LOGGER = logging.getLogger(__name__)
 
@@ -97,6 +97,7 @@ class BaseProcessor(object):
 		return cls.processors[name]
 	@classmethod
 	def write_header(self, stream, header):
+		LOGGER.debug('Writing header to %s' % stream)
 		count = 0
 		if header.encoding is not None:
 			encoding = header.encoding.encode('ascii')
@@ -111,9 +112,12 @@ class BaseProcessor(object):
 		return count
 	@classmethod
 	def read_header(cls, stream):
+		LOGGER.debug('Reading header from %s' % stream)
+		#print(repr(stream.read(cls.length_length)))
 		try:
 			length, = struct.unpack(cls.length_format, stream.read(cls.length_length))
 		except struct.error:
+			LOGGER.exception('When reading %s' % stream)
 			raise IOError
 		encoding = None
 		if length > 0:
@@ -122,6 +126,7 @@ class BaseProcessor(object):
 		try:
 			length, = struct.unpack(cls.length_format, stream.read(cls.length_length))
 		except struct.error:
+			LOGGER.exception('When reading %s' % stream)
 			raise IOError
 		mime = stream.read(length).decode('ascii')
 
@@ -230,11 +235,13 @@ class AutoRawNoCacheProcessor(AutoBaseProcessor):
 	def __call__(self, inf, outf, cached):
 		if cached:
 			raise cache.NoCache
+		LOGGER.debug('autoraw-nocache: %s -> %s' % (inf, outf))
 		try:
 			header = self.auto_header(inf.read(2048))
 			self.write_header(outf, header)
 		finally:
 			inf.seek(0)
+
 		return self.process(inf, outf)
 AutoRawNoCacheProcessor.register()
 

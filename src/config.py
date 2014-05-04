@@ -121,8 +121,8 @@ class Configuration(object):
 		LOGGER.debug('Resulting processors: %s' % self.processors)
 
 		if None not in self.processors:
-			LOGGER.warning('There is no processor defined for unspecified file extensions; setting default to autoraw.')
-			self.processors[None] = processors.get_processor('autoraw')(self.encoding)
+			LOGGER.warning('There is no processor defined for unspecified file extensions; setting default to autoraw-nocache.')
+			self.processors[None] = processors.get_processor('autoraw-nocache')(self.encoding)
 	@property
 	def default_processor(self):
 		return self.processors[None]
