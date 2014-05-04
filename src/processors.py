@@ -12,6 +12,8 @@ from subprocess import Popen, CalledProcessError, PIPE
 from shutil import copyfileobj
 import magic, chardet
 from tempfile import TemporaryFile
+from codecs import getreader, getwriter
+from time import sleep
 
 
 LOGGER = logging.getLogger(__name__)
@@ -261,11 +263,53 @@ try:
 		NAME = 'asciidoc-html4'
 		MIME = 'text/html'
 	AsciidocHTML4Processor.register()
-
-
 except ValueError:
 	pass
 
+try:
+	import markdown
+	class MarkdownProcessor(Processor):
+		BACKEND = NotImplemented
+		EXTENSIONS = []
+		FOOTER_LINK = '\n----\n[Index](/)\n'
+		insert_link = True
+		__slots__ = 'footer_link',
+		def __init__(self, encoding):
+			Processor.__init__(self, encoding)
+			self.footer_link = self.FOOTER_LINK.encode(encoding)
+		def process(self, inf, outf):
+			if self.BACKEND is NotImplemented:
+				raise RuntimeError
+			if self.insert_link:
+				with TemporaryFile('w+b') as tmp:
+					copyfileobj(inf, tmp)
+					tmp.write(self.footer_link)
+					tmp.flush()
+					tmp.seek(0)
+					markdown.markdownFromFile(input = tmp, output = outf, encoding = self.header.encoding, extensions = self.EXTENSIONS, output_format = self.BACKEND)
+			else:
+				markdown.markdownFromFile(input = inf, output = outf, encoding = self.header.encoding, extensions = self.EXTENSIONS, output_format = self.BACKEND)
+	class MarkdownXHTMLProcessor(MarkdownProcessor):
+		BACKEND = 'xhtml1'
+		NAME = 'markdown-xhtml1'
+		MIME = 'application/xhtml+xml'
+	MarkdownXHTMLProcessor.register()
+
+	class MarkdownHTML5Processor(MarkdownProcessor):
+		BACKEND = 'html5'
+		NAME = 'markdown-html5'
+		MIME = 'text/html'
+	MarkdownHTML5Processor.register()
+
+	class MarkdownHTML4Processor(MarkdownProcessor):
+		BACKEND = 'html4'
+		NAME = 'markdown-html4'
+		MIME = 'text/html'
+	MarkdownHTML4Processor.register()
+
+
+except ImportError:
+	pass
 
 def available_processors():
 	LOGGER.debug('Getting available hashers')
@@ -303,11 +347,16 @@ if __name__ == '__main__':
 			available = available_processors()
 			for name in available:
 				proctype = get_processor(name)
-				self.assertIn(Processor, proctype.__mro__)
+				self.assertIn(BaseProcessor, proctype.__mro__)
 
-				proc = proctype('utf8')
-				self.assertIsNotNone(proc)
-				self.assertEqual(proc.header.encoding, 'utf8')
+				try:
+					proc = proctype('application/octet-string', None)
+					self.assertIsNotNone(proc)
+				except TypeError:
+					proc = proctype('utf8')
+					self.assertIsNotNone(proc)
+					if hasattr(proc, 'header'):
+						self.assertEqual(proc.header.encoding, 'utf8')
 	class TestHeader(unittest.TestCase):
 		class FakeProcessor(Processor):
 			NAME = 'Fake'
@@ -318,7 +367,7 @@ if __name__ == '__main__':
 			text = 'BLAH'
 			with NamedTemporaryFile('wb', delete = False) as f:
 				name = f.name
-				processor.write_header(f)
+				processor.write_header(f, processor.header)
 				f.write(text.encode('utf8'))
 			try:
 				with open(name, 'rb') as f:
@@ -357,6 +406,46 @@ Optional version, optional date
 						proc(inf, outf)
 					outf.seek(0)
 					header = proctype.read_header(outf)
+					self.assertEqual(header, proc.header)
+					# XHTML is XML, so this should work
+					document = etree.parse(outf)
+					info = document.docinfo
+					self.assertEqual(info.public_id.strip(), '-//W3C//DTD XHTML 1.1//EN')
+					self.assertEqual(info.system_url, 'http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd')
+					self.assertEqual(info.encoding, 'UTF-8')
+					self.assertEqual(info.root_name, 'html')
+
+					root = document.getroot()
+					self.assertEqual(root.nsmap[None], 'http://www.w3.org/1999/xhtml')
+	if 'MarkdownXHTMLProcessor' in vars():
+		class TestMarkdown(unittest.TestCase):
+			DOCUMENT = \
+"""wikiserv
+========
+
+Wiki server with manual editing of text files as backend, with a selectable filter
+converting them to HTML and a caching mechanism.
+"""
+			def setUp(self):
+				with NamedTemporaryFile('wb', delete = False) as f:
+					self.inf = f.name
+					document = self.DOCUMENT.encode('utf8')
+					f.write(document)
+				with NamedTemporaryFile(delete = False) as f:
+					self.outf = f.name
+			def tearDown(self):
+				remove(self.inf)
+				remove(self.outf)
+			def test_markdown(self):
+				proctype = get_processor('markdown-xhtml1')
+				proc = proctype('utf8')
+				with open(self.outf, 'w+b') as outf:
+					with open(self.inf, 'rb') as inf:
+						proc(inf, outf)
+					outf.seek(0)
+					header = proctype.read_header(outf)
+					print(outf.name)
+					sleep(10)
 					self.assertEqual(header, proc.header)
 					# XHTML is XML, so this should work
 					document = etree.parse(outf)

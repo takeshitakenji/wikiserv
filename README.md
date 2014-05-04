@@ -23,6 +23,8 @@ Requirements
 6. [python-magic](http://github.com/ahupp/python-magic)
 7. [tornado](http://www.tornadoweb.org/)
 8. An OS that supports the built-in [fcntl](http://docs.python.org/3.3/library/fcntl.html) module
+7. [asciidoc](http://www.methods.co.nz/asciidoc/) in PATH (optional)
+8. [markdown](http://pypi.python.org/pypi/Markdown) for Python (optional)
 
 Configuration
 -------------
@@ -55,6 +57,26 @@ Configuration
 </configuration>
 ```
 
+Help
+----
+
+Since Python's [argparse](https://docs.python.org/3/library/argparse.html) module
+is used for parsing arguments, `--help` will provide some advice.
+
+```
+usage: server.py [ options ] -c config.xml 
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --config CONFIG.XML, -c CONFIG.XML
+                        XML configuration file
+  --scrub               Instead of running the server, just do a cache scrub
+  --bind-address ADDRESS
+                        Bind to ADDRESS instead of the address specified in
+                        configuration
+  --bind-port ADDRESS   Bind to ADDRESS instead of the port specified in
+                        configuration
+```
 
 Design
 ------

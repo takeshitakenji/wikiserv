@@ -330,7 +330,7 @@ if __name__ == '__main__':
 			raise ValueError(s)
 		return s
 
-	parser = ArgumentParser('%(proc)s [ options ] -c config.xml ')
+	parser = ArgumentParser(usage = '%(prog)s [ options ] -c config.xml ')
 	parser.add_argument('--config', '-c', required = True, metavar = 'CONFIG.XML', dest = 'configuration', help = 'XML configuration file')
 	parser.add_argument('--scrub', dest = 'scrub_only', action = 'store_true', default = False, help = 'Instead of running the server, just do a cache scrub')
 	parser.add_argument('--bind-address', dest = 'bind_address', metavar = 'ADDRESS', help = 'Bind to ADDRESS instead of the address specified in configuration')
