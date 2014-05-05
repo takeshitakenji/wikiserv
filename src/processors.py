@@ -14,7 +14,7 @@ import magic, chardet
 from tempfile import TemporaryFile
 from codecs import getreader, getwriter
 from time import sleep
-import cache
+import cache, textevents
 
 LOGGER = logging.getLogger(__name__)
 
@@ -73,6 +73,13 @@ else:
 			LOGGER.debug('Skipping path: %s' % path)
 		raise ValueError(executable)
 
+class TextEventHeaderReader(object):
+	__slots__ = '__text_event', '__final_output',
+	# TODO: create mode values
+	def __init__(self, tevent, final_output):
+		raise NotImplementedError
+	def on_text(self, mode, s):
+		raise NotImplementedError
 
 class BaseProcessor(object):
 	Header = namedtuple('Header', ['encoding', 'mime'])
