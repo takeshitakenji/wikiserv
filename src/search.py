@@ -93,7 +93,6 @@ class SearchCache(object):
 	def utcnow():
 		return datetime.utcnow().replace(tzinfo = utc)
 	def __init__(self, dbfile, sorted_scan, latest_mtime_callback, max_age = None, max_entries = None, auto_scrub = False):
-		# sorted_scan(search_filter) should return (latest_mtime, sorted_list)
 		if callable(dbfile):
 			self.__db = dbfile()
 		else:
@@ -140,7 +139,7 @@ class SearchCache(object):
 		str_filter = str(search_filter)
 		LOGGER.debug('Cached search using %s' % str_filter)
 		date_key = '=date:' + str_filter
-		mtime = self.__latest_mtime_callback()
+		mtime = self.__latest_mtime_callback(False)
 		updating = True
 		with self.__lock:
 			try:
@@ -180,7 +179,7 @@ class SearchCache(object):
 					# This is < because when tentative == True, an entry
 					# may be inserted.
 					return False
-		mtime = self.__latest_mtime_callback()
+		mtime = self.__latest_mtime_callback(True)
 		cutoff = None
 		if self.options.max_age is not None:
 			cutoff = datetime.utcnow().replace(tzinfo = utc) - self.options.max_age
@@ -288,7 +287,7 @@ if __name__ == '__main__':
 			self.cache.close()
 	class SearchCacheTest(BaseSearchCacheTest):
 		def get_cache(self):
-			return SearchCache(dict, self.sorted_scan, lambda: self.mtime)
+			return SearchCache(dict, self.sorted_scan, lambda freshen: self.mtime)
 		def test_miss(self):
 			func = PathFilter('a')
 			results = self.cache(func)
@@ -346,7 +345,7 @@ if __name__ == '__main__':
 			self.assertEqual(self.count, 2)
 	class ExpiringSearchCacheTest(BaseSearchCacheTest):
 		def get_cache(self):
-			return SearchCache(dict, self.sorted_scan, (lambda: self.mtime), max_age = 1)
+			return SearchCache(dict, self.sorted_scan, (lambda freshen: self.mtime), max_age = 1)
 		def test_expire(self):
 			func = PathFilter('a')
 			results = self.cache(func)
@@ -361,7 +360,7 @@ if __name__ == '__main__':
 			self.assertEqual(self.count, 2)
 	class LRUCacheTest(BaseSearchCacheTest):
 		def get_cache(self):
-			return SearchCache(dict, self.sorted_scan, (lambda: self.mtime), max_entries = 2)
+			return SearchCache(dict, self.sorted_scan, (lambda freshen: self.mtime), max_entries = 2)
 		def test_expire(self):
 			func1 = PathFilter('a')
 			results = self.cache(func1)
@@ -384,7 +383,7 @@ if __name__ == '__main__':
 			self.assertEqual(self.count, 4)
 	class AutoLRUCacheTest(BaseSearchCacheTest):
 		def get_cache(self):
-			return SearchCache(dict, self.sorted_scan, (lambda: self.mtime), max_entries = 2, auto_scrub = True)
+			return SearchCache(dict, self.sorted_scan, (lambda freshen: self.mtime), max_entries = 2, auto_scrub = True)
 		def test_expire(self):
 			func1 = PathFilter('a')
 			results = self.cache(func1)
