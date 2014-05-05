@@ -251,6 +251,12 @@ class Search(object):
 			self.__cache = None
 		if self.server is not None:
 			self.server = None
+	def scrub(self):
+		if self.__cache is not None:
+			self.__cache.schedule_scrub()
+			return True
+		else:
+			return False
 	@classmethod
 	def get_info(cls, path, root):
 		with filestuff.LockedFile(path) as f:
