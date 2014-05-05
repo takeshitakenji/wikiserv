@@ -86,10 +86,11 @@ class ContentFilter(Filter):
 
 
 class SearchCache(object):
-	__slots__ = '__db', '__miss_method',
-	def __init__(self, dbfile, miss_method):
+	__slots__ = '__db', '__sorted_scan', '__latest_mtime_callback',
+	def __init__(self, dbfile, sorted_scan, latest_mtime_callback):
 		self.__db = shelve.open(dbfile, 'c', protocol = pickle.HIGHEST_PROTOCOL)
 		self.__miss_method = miss_method
+		self.__latest_mtime_callback = latest_mtime_callback
 	def __del__(self):
 		self.close()
 	def __enter__(self):
@@ -104,6 +105,8 @@ class SearchCache(object):
 		if not isinstance(search_filter, Filter):
 			raise ValueError(search_filter)
 		raise NotImplementedError
+		# NOTE: latest_mtime_callback should be called to check mtime before going through with a scan
+		# and right after doing the scan.
 
 class Search(object):
 	Info = namedtuple('Info', ['name', 'modified', 'size'])
