@@ -29,7 +29,7 @@ Requirements
 Configuration
 -------------
 
-
+<!-- TODO: Add notes on search-cache setup. -->
 ```xml
 <?xml version="1.0" ?>
 

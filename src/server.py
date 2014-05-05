@@ -88,6 +88,9 @@ class Server(object):
 			# TODO: Check runtime db variables for preview lines.  If it's different from before, then delete all of preview_root.
 
 		self.caches.update(self.get_caches(configuration, self.process_funcs(self), skip))
+		if configuration.use_search_cache:
+			# TODO
+			raise RuntimeError
 		self.search = search.Search(self)
 		self.workers = worker.WorkerPool(configuration.worker_threads, autostart = True)
 	def __del__(self):

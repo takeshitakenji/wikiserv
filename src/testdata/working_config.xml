@@ -15,8 +15,8 @@
 		<send-etags />
 	</cache>
 	<seach-cache>
-		<max-age>86400</max-age>
-		<max-entries>2048</max-entries>
+		<max-age>3600</max-age>
+		<max-entries>32</max-entries>
 		<auto-scrub />
 	</search-cache>
 	<processors>

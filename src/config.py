@@ -105,6 +105,7 @@ class Configuration(object):
 
 		self.bind_port = int(self.xpath_single(document, '/configuration/bind-port/text()').strip())
 
+		# Main cache
 		try:
 			self.max_age = timedelta(seconds = positive_int(self.xpath_single(document, '/configuration/cache/max-age/text()')))
 		except KeyError:
@@ -117,6 +118,24 @@ class Configuration(object):
 
 		self.auto_scrub = bool(document.xpath('/configuration/cache/auto-scrub'))
 		self.send_etags = bool(document.xpath('/configuration/cache/send-etags'))
+
+
+		# Search cache
+		self.use_search_cache = bool(document.xpath('/configuration/search-cache'))
+		try:
+			self.cache_max_age = timedelta(seconds = positive_int(self.xpath_single(document, '/configuration/search-cache/max-age/text()')))
+		except KeyError:
+			self.cache_max_age = None
+
+		try:
+			self.cache_max_entries = positive_int(self.xpath_single(document, '/configuration/search-cache/max-entries/text()'))
+		except KeyError:
+			self.cache_max_entries = None
+
+		self.cache_auto_scrub = bool(document.xpath('/configuration/search-cache/auto-scrub'))
+
+
+
 		self.dispatcher_thread = bool(document.xpath('/configuration/cache/dispatcher-thread'))
 
 		self.encoding = self.xpath_single(document, '/configuration/processors/encoding/text()')

@@ -112,6 +112,7 @@ class SearchCache(object):
 				raise ValueError('Invalid number of maximum entries: %d' % max_entries)
 		auto_scrub = bool(auto_scrub)
 		self.__options = cache.Cache.Options(max_age, max_entries, auto_scrub)
+		self.scrub()
 	def __len__(self):
 		with self.__lock:
 			return self.__length
