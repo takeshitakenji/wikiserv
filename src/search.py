@@ -11,6 +11,7 @@ import itertools, functools
 from os.path import relpath, basename, join as path_join
 from collections import namedtuple
 from threading import Semaphore
+from queue import Queue
 
 LOGGER = logging.getLogger('wikiserv')
 
@@ -163,11 +164,43 @@ class SearchCache(object):
 			if not updating:
 				self.__length += 1
 		return entry_content
+	@property
+	def options(self):
+		return self.__options
 	def schedule_scrub(self, tentative = False):
 		self.scrub(tentantive)
+	def __remove(self, key, date_key):
+		del db[key]
+		del db[date_key]
 	def scrub(self, tentative = False):
 		# Same features as cache.Cache
-		raise NotImplementedError
+		mtime = self.__latest_mtime_callback()
+		if self.options.max_age is not None:
+			cutoff = datetime.utcnow().replace(tzinfo = utc) - self.options.max_age
+		entries = []
+		LOGGER.info('Scrubbing cache %s' % self)
+		with self.__lock:
+			for key in self.__db:
+				if key.startswith('=date:'):
+					continue
+				date_key = '=date:' + key
+				entry_timestamp = self.__db[date_key]
+				if entry_timestamp < mtime:
+					self.__remove(key, date_key)
+					continue
+				elif cutoff is not None and entry_timestamp < cutoff:
+					self.__remove(key, date_key)
+					continue
+				entries.append((key, date_key, entry_timestamp))
+			ecount = len(entries)
+			if self.options.max_entries is not None and ecount > self.options.max_entries:
+				entries.sort(key = lambda x: x[2])
+				for key, date_key, entry_timestamp in itertools.islice(entries, ecount - self.options.max_entries):
+					self.__remove(key, date_key)
+					ecount -= 1
+			self.__length = ecount
+
+
 
 class Search(object):
 	Info = namedtuple('Info', ['name', 'modified', 'size'])
@@ -222,7 +255,8 @@ if __name__ == '__main__':
 			self.assertTrue(func('Bar/foo', None))
 			self.assertTrue(func('fOo', None))
 			self.assertTrue(func('baR', None))
-	class SearchCacheTest(unittest.TestCase):
+	
+	class BaseSearchCacheTest(unittest.TestCase):
 		FILES = [
 			'foo',
 			'bar',
@@ -235,12 +269,17 @@ if __name__ == '__main__':
 		def sorted_scan(self, filter_func):
 			self.count += 1
 			return sorted((f for f in self.FILES if filter_func(f, None)))
+		def get_cache(self):
+			raise NotImplementedError
 		def setUp(self):
 			self.mtime = datetime.utcnow().replace(tzinfo = utc)
-			self.cache = SearchCache(dict, self.sorted_scan, lambda: self.mtime)
+			self.cache = self.get_cache()
 			self.count = 0
 		def tearDown(self):
 			self.cache.close()
+	class SearchCacheTest(BaseSearchCacheTest):
+		def get_cache(self):
+			return SearchCache(dict, self.sorted_scan, lambda: self.mtime)
 		def test_miss(self):
 			func = PathFilter('a')
 			results = self.cache(func)

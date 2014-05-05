@@ -7,7 +7,7 @@ import struct
 from datetime import datetime, timedelta
 from pytz import utc
 import filestuff, worker
-import fcntl, os.path, stat, os
+import fcntl, os.path, stat, os, itertools
 from os import fstat, mkdir, fchmod, chmod, utime, remove
 from os.path import join as path_join, isdir, isfile, normpath, dirname, relpath
 from traceback import print_exc
@@ -301,7 +301,7 @@ class Cache(object):
 		if any((part.startswith('.') for part in path.split(os.path.sep))):
 			raise ValueError('Path entries cannot start with "."')
 
-		if self.__options.auto_scrub and self.__options.max_entries is not None:
+		if self.options.auto_scrub and self.options.max_entries is not None:
 			LOGGER.debug('Scheduling a scrub because max_entries=%s and auto_scrub=True' % self.options.max_entries)
 			self.schedule_scrub(True)
 		
@@ -388,10 +388,10 @@ class Cache(object):
 		with FileLock(self.lockfile, FileLock.EXCLUSIVE):
 			return self.__known_entry_count
 	def scrub(self, tentative = False):
-		if tentative and self.__options.max_entries is not None:
+		if tentative and self.options.max_entries is not None:
 			LOGGER.debug('Performing check because tentative = True')
 			with FileLock(self.lockfile, FileLock.SHARED):
-				if self.__known_entry_count < self.__options.max_entries:
+				if self.__known_entry_count < self.options.max_entries:
 					# This is < because when tentative == True, an entry
 					# may be inserted.
 					return False
@@ -422,13 +422,13 @@ class Cache(object):
 			#     if they differ, skip that file
 			# Stop when enough files have been deleted
 			ecount = len(entries)
-			if self.__options.max_entries is not None and ecount >= self.__options.max_entries:
+			if self.options.max_entries is not None and ecount >= self.options.max_entries:
 				equeue = Queue()
 				for entry in sorted(entries, key = lambda x: x[1]):
 					equeue.put(entry)
 
 				try:
-					while ecount > 0 and ecount >= self.__options.max_entries:
+					while ecount > 0 and ecount >= self.options.max_entries:
 						fname, timestamp = equeue.get(False)
 						with filestuff.ExclusivelyLockedFile(fname) as entry:
 							if entry.modified > timestamp:
