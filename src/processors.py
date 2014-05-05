@@ -454,7 +454,7 @@ Optional version, optional date
 				proc = proctype('utf8')
 				with open(self.outf, 'w+b') as outf:
 					with open(self.inf, 'rb') as inf:
-						proc(inf, outf)
+						proc(inf, outf, True)
 					outf.seek(0)
 					header = proctype.read_header(outf)
 					self.assertEqual(header, proc.header)
@@ -492,7 +492,7 @@ converting them to HTML and a caching mechanism.
 				proc = proctype('utf8')
 				with open(self.outf, 'w+b') as outf:
 					with open(self.inf, 'rb') as inf:
-						proc(inf, outf)
+						proc(inf, outf, True)
 					outf.seek(0)
 					header = proctype.read_header(outf)
 					self.assertEqual(header, proc.header)

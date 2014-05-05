@@ -139,7 +139,7 @@ class Configuration(object):
 if __name__ == '__main__':
 	import unittest, logging
 	from hashlib import sha1
-	from os.path import join as path_join, dirname
+	from os.path import join as path_join, dirname, abspath
 	logging.basicConfig(level = logging.DEBUG)
 	
 	class TestConfig(unittest.TestCase):
@@ -148,8 +148,8 @@ if __name__ == '__main__':
 			with open(self.CONFIG_PATH, 'r', encoding = 'utf8') as f:
 				config = Configuration(f)
 			self.assertIsNotNone(config)
-			self.assertEqual(config.cache_dir, path_join('testdata', 'example-cache'))
-			self.assertEqual(config.source_dir, path_join('testdata', 'example-source'))
+			self.assertEqual(config.cache_dir, abspath(path_join('testdata', 'example-cache')))
+			self.assertEqual(config.source_dir, abspath(path_join('testdata', 'example-source')))
 			self.assertIsNotNone(config.checksum_function)
 			self.assertEqual(config.max_age, timedelta(seconds = 86400))
 			self.assertEqual(config.max_entries, 2048)

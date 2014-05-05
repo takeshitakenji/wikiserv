@@ -697,7 +697,7 @@ if __name__ == '__main__':
 			self.assertEqual(dirs, ['good/subgood', 'good'])
 
 	class BaseCacheTest(unittest.TestCase):
-		def process(self, inf, outf):
+		def process(self, inf, outf, cached):
 			print('PROCESS(INF=%s, OUTF=%s)' % (inf.name, outf.name))
 			self.count += 1
 			outf.write('TOUCHED\n'.encode('ascii'))
