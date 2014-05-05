@@ -72,7 +72,6 @@ class EntryHeader(object):
 		try:
 			size, cached, seconds, microseconds, cksum_len = struct.unpack(cls.struct_fmt, buff[len(cls.MAGIC):])
 		except struct.error:
-			LOGGER.exception('When reading %s' % stream)
 			raise IOError
 		timestamp = cls.fp2datetime(seconds, microseconds, utc)
 		checksum = None

@@ -10,6 +10,7 @@ import config, cache, processors, filestuff, search, worker
 from dateutil.parser import parse as date_parse
 from threading import Semaphore
 from pytz import utc
+from dateutil.tz import tzlocal
 from email.utils import format_datetime
 from shutil import copyfileobj
 from collections import namedtuple
@@ -26,6 +27,7 @@ class Server(object):
 	__slots__ = 'configuration', 'caches', 'processors', 'send_etags', 'search', 'preview_lines', 'workers',
 	instance = None
 	ilock = Semaphore()
+	localzone = tzlocal()
 	CACHE_TYPES = {
 		'document' : 'process',
 		'preview' : 'doc_head',
@@ -259,7 +261,7 @@ class IndexHandler(tornado.web.RequestHandler):
 		print('<ul>', file = self)
 		server = Server.get_instance() if filter_func else None
 		for f in files:
-			self.write('\t<li><a href="/%s">%s</a> @ %s (%f kB)' % (cgi.escape(f.name, True), cgi.escape(f.name), f.modified, (float(f.size) / 1024)))
+			self.write('\t<li><a href="/%s">%s</a> @ %s (%f kB)' % (cgi.escape(f.name, True), cgi.escape(f.name), f.modified.astimezone(server.localzone).strftime('%c (%Z)'), (float(f.size) / 1024)))
 			if filter_func and server:
 				preview = server.get_preview(f.name)
 				if preview:

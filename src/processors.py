@@ -112,12 +112,9 @@ class BaseProcessor(object):
 		return count
 	@classmethod
 	def read_header(cls, stream):
-		LOGGER.debug('Reading header from %s' % stream)
-		#print(repr(stream.read(cls.length_length)))
 		try:
 			length, = struct.unpack(cls.length_format, stream.read(cls.length_length))
 		except struct.error:
-			LOGGER.exception('When reading %s' % stream)
 			raise IOError
 		encoding = None
 		if length > 0:
@@ -126,7 +123,6 @@ class BaseProcessor(object):
 		try:
 			length, = struct.unpack(cls.length_format, stream.read(cls.length_length))
 		except struct.error:
-			LOGGER.exception('When reading %s' % stream)
 			raise IOError
 		mime = stream.read(length).decode('ascii')
 
