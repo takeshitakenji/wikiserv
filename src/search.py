@@ -10,7 +10,7 @@ from pytz import utc
 import itertools, functools
 from os.path import relpath, basename, join as path_join
 from collections import namedtuple
-from threading import Sempahore
+from threading import Semaphore
 
 LOGGER = logging.getLogger('wikiserv')
 
@@ -159,7 +159,6 @@ class Search(object):
 			filter_func = lambda path, root: True
 		root = self.server.cache.source_root
 		find_files = [path for path in sorted(cache.Cache.find_files(root)) if filter_func(relpath(path, root), root)]
-
 		# Cache [filter] = find_files, newest_mtime
 		found = []
 		for path in itertools.islice(find_files, start, end, 1):
@@ -169,3 +168,21 @@ class Search(object):
 			except OSError:
 				pass
 		return found, (start > 0), (end < len(find_files) - 1)
+
+
+
+
+
+if __name__ == '__main__':
+	import unittest
+	logging.basicConfig(level = logging.DEBUG)
+	class FilterTest(unittest.TestCase):
+		def test_scrub(self):
+			self.assertEqual(scrub_terms('\nfoo bar\t'), ('bar', 'foo'))
+		def test_path(self):
+			func = PathFilter('foo bAr')
+			self.assertTrue(func('./foo/bar', None))
+			self.assertTrue(func('Bar/foo', None))
+			self.assertTrue(func('fOo', None))
+			self.assertTrue(func('baR', None))
+	unittest.main()
