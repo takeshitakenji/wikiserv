@@ -4,8 +4,7 @@
 	<bind-address>127.0.0.1</bind-address>
 	<bind-port>8080</bind-port>
 	<document-root>example-source</document-root>
-	<cache>
-		<cache-dir>example-cache</cache-dir>
+	<cache dir="example-cache">
 		<checksum-function>sha1</checksum-function>
 		<max-age>86400</max-age>
 		<max-entries>2048</max-entries>

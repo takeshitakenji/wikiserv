@@ -7,14 +7,18 @@
 	<document-root>test_root</document-root>
 	<preview-lines>10</preview-lines>
 	<worker-threads>4</worker-threads>
-	<cache>
-		<cache-dir>test_cache</cache-dir>
+	<cache dir="test_cache">
 		<checksum-function>sha1</checksum-function>
 		<max-age>86400</max-age>
 		<max-entries>2048</max-entries>
 		<auto-scrub />
 		<send-etags />
 	</cache>
+	<seach-cache>
+		<max-age>86400</max-age>
+		<max-entries>2048</max-entries>
+		<auto-scrub />
+	</search-cache>
 	<processors>
 		<encoding>utf8</encoding>
 		<processor extensions="txt">asciidoc-xhtml11</processor>

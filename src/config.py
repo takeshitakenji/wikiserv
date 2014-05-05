@@ -30,7 +30,7 @@ class Configuration(object):
 		if isabs(path):
 			return path
 		else:
-			return normpath(path_join(current_dir, path))
+			return abspath(path_join(current_dir, path))
 	def include_processors(self, root, source_path):
 		# TODO: Iterate over /configuration/processors/include to include external XML files, noting absolute paths and paths relative to stream.name.
 		included_processors = {}
@@ -94,7 +94,7 @@ class Configuration(object):
 		except KeyError:
 			self.worker_threads = 1
 
-		self.cache_dir = self.get_path(dirname(stream.name), self.xpath_single(document, '/configuration/cache/cache-dir/text()').strip())
+		self.cache_dir = self.get_path(dirname(stream.name), self.xpath_single(document, '/configuration/cache/@dir').strip())
 		self.checksum_function = hashers.get_hasher( \
 			self.xpath_single(document, '/configuration/cache/checksum-function/text()').strip())
 
