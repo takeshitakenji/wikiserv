@@ -296,13 +296,14 @@ class Cache(object):
 	def __str__(self):
 		return 'Cache at %s mirroring original %s' % (self.__root, self.__source_root)
 	def schedule_scrub(self, tentative = False):
-		return self.scrub()
+		return self.scrub(tentative)
 	def __get_entry(self, path):
 		path = normpath(path)
 		if any((part.startswith('.') for part in path.split(os.path.sep))):
 			raise ValueError('Path entries cannot start with "."')
 
 		if self.__options.auto_scrub and self.__options.max_entries is not None:
+			LOGGER.debug('Scheduling a scrub because max_entries=%s and auto_scrub=True' % self.options.max_entries)
 			self.schedule_scrub(True)
 		
 		with FileLock(self.lockfile, FileLock.SHARED):
@@ -388,13 +389,14 @@ class Cache(object):
 		with FileLock(self.lockfile, FileLock.EXCLUSIVE):
 			return self.__known_entry_count
 	def scrub(self, tentative = False):
-		LOGGER.debug('Scrubbing cache %s' % self)
 		if tentative and self.__options.max_entries is not None:
+			LOGGER.debug('Performing check because tentative = True')
 			with FileLock(self.lockfile, FileLock.SHARED):
 				if self.__known_entry_count < self.__options.max_entries:
 					# This is < because when tentative == True, an entry
 					# may be inserted.
 					return False
+		LOGGER.debug('Scrubbing cache %s' % self)
 
 		with FileLock(self.lockfile, FileLock.EXCLUSIVE):
 			entries = []
