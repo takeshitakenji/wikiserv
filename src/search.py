@@ -86,17 +86,11 @@ class ContentFilter(Filter):
 			return False
 
 
-class Entry(object):
-	__slots__ = 'timestamp', 'content'
-	def __init__(self, content):
-		self.timestamp = datetime.utcnow().replace(tzinfo = utc)
-		self.content = list(content)
-	def refresh(self):
-		self.timestamp = datetime.utcnow().replace(tzinfo = utc)
-		return self
-
 class SearchCache(object):
 	__slots__ = '__db', '__sorted_scan', '__latest_mtime_callback', '__options', '__lock',
+	@staticmethod
+	def utcnow():
+		return datetime.utcnow().replace(tzinfo = utc)
 	def __init__(self, dbfile, sorted_scan, latest_mtime_callback, max_age = None, max_entries = None, auto_scrub = False):
 		# sorted_scan(search_filter) should return (latest_mtime, sorted_list)
 		if callable(dbfile):
@@ -118,7 +112,7 @@ class SearchCache(object):
 		self.__options = cache.Cache.Options(max_age, max_entries, auto_scrub)
 	def __len__(self):
 		with self.__lock:
-			return len(self.__db)
+			return sum((1 for key in self.__db if not key.startswith('=date:')))
 	def __del__(self):
 		self.close()
 	def __enter__(self):
@@ -143,22 +137,26 @@ class SearchCache(object):
 
 		str_filter = str(search_filter)
 		LOGGER.debug('Cached search using %s' % str_filter)
+		date_key = '=date:' + str_filter
 		mtime = self.__latest_mtime_callback()
 		with self.__lock:
 			try:
-				entry = self.__db[str_filter]
-				if entry.timestamp < mtime:
+				entry_timestamp = self.__db[date_key]
+				if entry_timestamp < mtime:
 					raise ValueError
-				self.__db[str_filter] = entry.refresh()
+				self.__db[date_key] = self.utcnow()
 
-				return entry.content
+				return self.__db[str_filter]
 			except (KeyError, ValueError):
 				pass
 
-		entry = Entry(self.__sorted_scan(search_filter))
+		LOGGER.debug('No matches for %s; calling sorted scan' % str_filter)
+		entry_content = list(self.__sorted_scan(search_filter))
+		entry_timestamp = self.utcnow()
 		with self.__lock:
-			self.__db[str_filter] = entry
-		return entry.content
+			self.__db[date_key] = entry_timestamp
+			self.__db[str_filter] = entry_content
+		return entry_content
 	def schedule_scrub(self, tentative = False):
 		self.scrub(tentantive)
 	def scrub(self, tentative = False):
