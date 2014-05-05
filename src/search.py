@@ -13,7 +13,7 @@ from collections import namedtuple
 from threading import Semaphore
 from queue import Queue
 
-LOGGER = logging.getLogger('wikiserv')
+LOGGER = logging.getLogger(__name__)
 
 
 def scrub_terms(string, term_cleaner = lambda term: term):
@@ -274,7 +274,7 @@ if __name__ == '__main__':
 		def get_cache(self):
 			raise NotImplementedError
 		def setUp(self):
-			self.mtime = datetime.utcnow().replace(tzinfo = utc)
+			self.mtime = SearchCache.utcnow()
 			self.cache = self.get_cache()
 			self.count = 0
 		def tearDown(self):
@@ -310,6 +310,33 @@ if __name__ == '__main__':
 			self.assertEqual(results, ['bar', 'baz', 'x/a/z', 'x/y/a'])
 			self.assertEqual(self.count, 1)
 			self.assertEqual(len(self.cache), 1)
+		def test_new_mtime(self):
+			func = PathFilter('a')
+			results = self.cache(func)
+			self.assertEqual(results, ['bar', 'baz', 'x/a/z', 'x/y/a'])
+			self.assertEqual(self.count, 1)
+
+			sleep(0.5)
+			self.mtime = SearchCache.utcnow()
+
+			func = PathFilter('a')
+			results = self.cache(func)
+			self.assertEqual(results, ['bar', 'baz', 'x/a/z', 'x/y/a'])
+			self.assertEqual(self.count, 2)
+		def test_new_mtime_scrub(self):
+			func = PathFilter('a')
+			results = self.cache(func)
+			self.assertEqual(results, ['bar', 'baz', 'x/a/z', 'x/y/a'])
+			self.assertEqual(self.count, 1)
+
+			sleep(0.5)
+			self.mtime = SearchCache.utcnow()
+			self.cache.scrub()
+
+			func = PathFilter('a')
+			results = self.cache(func)
+			self.assertEqual(results, ['bar', 'baz', 'x/a/z', 'x/y/a'])
+			self.assertEqual(self.count, 2)
 	class ExpiringSearchCacheTest(BaseSearchCacheTest):
 		def get_cache(self):
 			return SearchCache(dict, self.sorted_scan, (lambda: self.mtime), max_age = 1)
