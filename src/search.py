@@ -5,10 +5,12 @@ if sys.version_info < (3, 3):
 
 import logging, os, codecs, shelve, pickle
 import config, cache, processors, filestuff
+from datetime import datetime, timedelta
 from pytz import utc
 import itertools, functools
 from os.path import relpath, basename, join as path_join
 from collections import namedtuple
+from threading import Sempahore
 
 LOGGER = logging.getLogger('wikiserv')
 
@@ -86,11 +88,22 @@ class ContentFilter(Filter):
 
 
 class SearchCache(object):
-	__slots__ = '__db', '__sorted_scan', '__latest_mtime_callback',
-	def __init__(self, dbfile, sorted_scan, latest_mtime_callback):
+	__slots__ = '__db', '__sorted_scan', '__latest_mtime_callback', '__options', '__lock',
+	def __init__(self, dbfile, sorted_scan, latest_mtime_callback, max_age = None, max_entries = None, auto_scrub = False):
 		self.__db = shelve.open(dbfile, 'c', protocol = pickle.HIGHEST_PROTOCOL)
 		self.__miss_method = miss_method
 		self.__latest_mtime_callback = latest_mtime_callback
+		self.__lock = Semaphore()
+
+		# Store options
+		if max_age is not None and not isinstance(max_age, timedelta):
+			max_age = timedelta(seconds = max_age)
+		if max_entries is not None:
+			max_entries = int(max_entries)
+			if max_entries < 2:
+				raise ValueError('Invalid number of maximum entries: %d' % max_entries)
+		auto_scrub = bool(auto_scrub)
+		self.__options = cache.Cache.Options(max_age, max_entries, auto_scrub)
 	def __del__(self):
 		self.close()
 	def __enter__(self):
@@ -107,6 +120,17 @@ class SearchCache(object):
 		raise NotImplementedError
 		# NOTE: latest_mtime_callback should be called to check mtime before going through with a scan
 		# and right after doing the scan.
+		# Once search results have been computed, get utcnow().replace(tzinfo = utc)
+
+
+		# Use lock when actually storing to/getting from database
+		with self.__lock:
+			pass
+	def schedule_scrub(self, tentative = False):
+		self.scrub(tentantive)
+	def scrub(self, tentative = False):
+		# Same features as cache.Cache
+		raise NotImplementedError
 
 class Search(object):
 	Info = namedtuple('Info', ['name', 'modified', 'size'])
