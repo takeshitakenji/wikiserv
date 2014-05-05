@@ -3,7 +3,7 @@ import sys
 if sys.version_info < (3, 3):
 	raise RuntimeError('At least Python 3.3 is required')
 
-import logging, os, codecs
+import logging, os, codecs, shelve, pickle
 import config, cache, processors, filestuff
 from pytz import utc
 import itertools, functools
@@ -83,6 +83,27 @@ class ContentFilter(Filter):
 				line = reader.readline()
 			return False
 
+
+
+class SearchCache(object):
+	__slots__ = '__db', '__miss_method',
+	def __init__(self, dbfile, miss_method):
+		self.__db = shelve.open(dbfile, 'c', protocol = pickle.HIGHEST_PROTOCOL)
+		self.__miss_method = miss_method
+	def __del__(self):
+		self.close()
+	def __enter__(self):
+		return self
+	def __exit__(self, type, value, tb):
+		self.close()
+	def close(self):
+		if self.__db is not None:
+			self.__db.close()
+			self.__db = None
+	def __getitem__(self, search_filter):
+		if not isinstance(search_filter, Filter):
+			raise ValueError(search_filter)
+		raise NotImplementedError
 
 class Search(object):
 	Info = namedtuple('Info', ['name', 'modified', 'size'])
