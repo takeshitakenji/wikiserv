@@ -8,7 +8,7 @@ import config, cache, processors, filestuff
 from datetime import datetime, timedelta
 from pytz import utc
 import itertools, functools
-from os.path import relpath, basename, join as path_join
+from os.path import relpath, basename, join as path_join, dirname
 from collections import namedtuple
 from threading import Semaphore
 from queue import Queue
@@ -88,20 +88,21 @@ class ContentFilter(Filter):
 			return False
 
 
-class SearchCache(object):
+
+
+class BaseSearchCache(object):
 	__slots__ = '__db', '__sorted_scan', '__latest_mtime_callback', '__options', '__lock', '__length',
 	@staticmethod
 	def utcnow():
 		return datetime.utcnow().replace(tzinfo = utc)
-	def __init__(self, dbfile, sorted_scan, latest_mtime_callback, max_age = None, max_entries = None, auto_scrub = False):
-		if callable(dbfile):
-			self.__db = dbfile()
-		else:
-			self.__db = shelve.open(dbfile, 'c', protocol = pickle.HIGHEST_PROTOCOL)
+	@staticmethod
+	def get_db():
+		raise NotImplementedError
+	def __init__(self, db, sorted_scan, latest_mtime_callback, max_age = None, max_entries = None, auto_scrub = False):
+		self.__db = db
 		self.__length = sum((1 for key in self.__db if not key.startswith('=date:')))
 		self.__sorted_scan = sorted_scan
 		self.__latest_mtime_callback = latest_mtime_callback
-		self.__lock = Semaphore()
 
 		# Store options
 		if max_age is not None and not isinstance(max_age, timedelta):
@@ -114,21 +115,16 @@ class SearchCache(object):
 		self.__options = cache.Cache.Options(max_age, max_entries, auto_scrub)
 		self.scrub()
 	def __len__(self):
-		with self.__lock:
+		with self:
 			return self.__length
 	def __del__(self):
 		self.close()
 	def __enter__(self):
-		return self
+		raise NotImplementedError
 	def __exit__(self, type, value, tb):
-		self.close()
+		raise NotImplementedError
 	def close(self):
-		if self.__db is not None:
-			try:
-				self.__db.close()
-			except AttributeError:
-				pass
-			self.__db = None
+		raise NotImplementedError
 	def __call__(self, search_filter):
 		if not isinstance(search_filter, Filter):
 			raise ValueError(search_filter)
@@ -142,7 +138,7 @@ class SearchCache(object):
 		date_key = '=date:' + str_filter
 		mtime = self.__latest_mtime_callback(False)
 		updating = True
-		with self.__lock:
+		with self:
 			try:
 				entry_timestamp = self.__db[date_key]
 				if mtime is None or entry_timestamp < mtime:
@@ -159,7 +155,7 @@ class SearchCache(object):
 		LOGGER.debug('No matches for %s; calling sorted scan' % str_filter)
 		entry_content = list(self.__sorted_scan(search_filter))
 		new_entry_timestamp = self.utcnow()
-		with self.__lock:
+		with self:
 			other_updated = False
 			try:
 				# Done this way because another thread might've updated it while DB wasn't locked.
@@ -184,7 +180,7 @@ class SearchCache(object):
 	def scrub(self, tentative = False):
 		if tentative and self.options.max_entries is not None:
 			LOGGER.debug('Performing check because tentative = True')
-			with self.__lock:
+			with self:
 				if self.__length < self.options.max_entries:
 					# This is < because when tentative == True, an entry
 					# may be inserted.
@@ -195,7 +191,7 @@ class SearchCache(object):
 			cutoff = datetime.utcnow().replace(tzinfo = utc) - self.options.max_age
 		entries = []
 		LOGGER.info('Scrubbing cache %s' % self)
-		with self.__lock:
+		with self:
 			for key in list(self.__db):
 				if key.startswith('=date:'):
 					continue
@@ -217,6 +213,58 @@ class SearchCache(object):
 					ecount -= 1
 			self.__length = ecount
 		return True
+
+class SearchCache(BaseSearchCache):
+	allbits = stat.S_IRWXU|stat.S_IRWXG|stat.S_IRWXO
+	file_perms = stat.S_IRUSR|stat.S_IWUSR
+
+	@classmethod
+	def fix_perms(cls, handle):
+		try:
+			info = os.fstat(handle.fileno())
+			if (info.st_mode & cls.allbits) != cls.file_perms:
+				os.fchmod(handle.fileno(), cls.file_perms)
+		except AttributeError:
+			# handle is a path
+			info = os.stat(handle)
+			if (info.st_mode & cls.allbits) != cls.file_perms:
+				os.chmod(handle, cls.file_perms)
+
+	__slots__ = '__lockfile', '__lockhandle'
+	def __init__(self, dbfile, sorted_scan, latest_mtime_callback, max_age = None, max_entries = None, auto_scrub = None):
+		self.__lockfile = path_join(dirname(dbfile), '.lock-' + basename(dbfile))
+		self.__lockhandle = None
+		with open(self.__lockfile, 'wb') as f:
+			self.fix_perms(f)
+		BaseSearchCache.__init__(self, shelve.open(dbfile, 'c', pickle.HIGHEST_PROTOCOL), \
+				sorted_scan, latest_mtime_callback, max_age, max_entries, auto_scrub)
+		self.fix_perms(dbfile)
+	def close(self):
+		if self._BaseSearchCache__db is not None:
+			self._BaseSearchCache__db.close()
+			self._BaseSearchCache__db = None
+	def __enter__(self):
+		self.__lockhandle = ExclusivelyLockedFile(self.__lockfile)
+		return self.__lockhandle.__enter__()
+	def __exit__(self, type, value, tb):
+		self.__lockhandle.__exit(type, value, tb)
+		self.__lockhandle = None
+
+class TemporarySearchCache(BaseSearchCache):
+	__slots__ = '__lock',
+	def __init__(self, sorted_scan, latest_mtime_callback, max_age = None, max_entries = None, auto_scrub = None):
+		self.__lock = Semaphore()
+		BaseSearchCache.__init__(self, {}, sorted_scan, latest_mtime_callback, max_age, max_entries, auto_scrub)
+	def close(self):
+		if self._BaseSearchCache__db is not None:
+			self._BaseSearchCache__db = None
+	def __enter__(self):
+		return self.__lock.acquire()
+	def __exit__(self, type, value, tb):
+		self.__lock.release()
+
+
+
 
 
 
@@ -352,14 +400,14 @@ if __name__ == '__main__':
 		def get_cache(self):
 			raise NotImplementedError
 		def setUp(self):
-			self.mtime = SearchCache.utcnow()
+			self.mtime = TemporarySearchCache.utcnow()
 			self.cache = self.get_cache()
 			self.count = 0
 		def tearDown(self):
 			self.cache.close()
 	class SearchCacheTest(BaseSearchCacheTest):
 		def get_cache(self):
-			return SearchCache(dict, self.sorted_scan, self.get_mtime)
+			return TemporarySearchCache(self.sorted_scan, self.get_mtime)
 		def test_miss(self):
 			func = PathFilter('a')
 			results = self.cache(func)
@@ -407,7 +455,7 @@ if __name__ == '__main__':
 			self.assertEqual(self.count, 1)
 
 			sleep(0.5)
-			self.mtime = SearchCache.utcnow()
+			self.mtime = TemporarySearchCache.utcnow()
 
 			func = PathFilter('a')
 			results = self.cache(func)
@@ -420,7 +468,7 @@ if __name__ == '__main__':
 			self.assertEqual(self.count, 1)
 
 			sleep(0.5)
-			self.mtime = SearchCache.utcnow()
+			self.mtime = TemporarySearchCache.utcnow()
 			self.cache.scrub()
 
 			func = PathFilter('a')
@@ -442,7 +490,7 @@ if __name__ == '__main__':
 			self.assertEqual(self.count, 2)
 	class ExpiringSearchCacheTest(BaseSearchCacheTest):
 		def get_cache(self):
-			return SearchCache(dict, self.sorted_scan, self.get_mtime, max_age = 1)
+			return TemporarySearchCache(self.sorted_scan, self.get_mtime, max_age = 1)
 		def test_expire(self):
 			func = PathFilter('a')
 			results = self.cache(func)
@@ -457,7 +505,7 @@ if __name__ == '__main__':
 			self.assertEqual(self.count, 2)
 	class LRUCacheTest(BaseSearchCacheTest):
 		def get_cache(self):
-			return SearchCache(dict, self.sorted_scan, self.get_mtime, max_entries = 2)
+			return TemporarySearchCache(self.sorted_scan, self.get_mtime, max_entries = 2)
 		def test_expire(self):
 			func1 = PathFilter('a')
 			results = self.cache(func1)
@@ -480,7 +528,7 @@ if __name__ == '__main__':
 			self.assertEqual(self.count, 4)
 	class AutoLRUCacheTest(BaseSearchCacheTest):
 		def get_cache(self):
-			return SearchCache(dict, self.sorted_scan, self.get_mtime, max_entries = 2, auto_scrub = True)
+			return TemporarySearchCache(self.sorted_scan, self.get_mtime, max_entries = 2, auto_scrub = True)
 		def test_expire(self):
 			func1 = PathFilter('a')
 			results = self.cache(func1)

@@ -204,7 +204,6 @@ class AutoProcess(object):
 
 
 class Cache(object):
-
 	allbits = stat.S_IRWXU|stat.S_IRWXG|stat.S_IRWXO
 
 	root_perms = stat.S_IRUSR|stat.S_IWUSR|stat.S_IXUSR
@@ -213,13 +212,13 @@ class Cache(object):
 	@classmethod
 	def fix_dir_perms(cls, path):
 		info = os.stat(path)
-		if (info.st_mode & cls.allbits) != path:
+		if (info.st_mode & cls.root_perms) != cls.root_perms:
 			chmod(path, cls.root_perms)
 	@classmethod
 	def fix_perms(cls, handle):
 		info = fstat(handle.fileno())
-		if (info.st_mode & cls.allbits) != cls.root_perms:
-			fchmod(handle.fileno(), cls.root_perms)
+		if (info.st_mode & cls.allbits) != cls.file_perms:
+			fchmod(handle.fileno(), cls.file_perms)
 	@staticmethod
 	def find_files(root):
 		for path, dnames, fnames in os.walk(root):
