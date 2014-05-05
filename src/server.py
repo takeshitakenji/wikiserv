@@ -5,7 +5,7 @@ if sys.version_info < (3, 3):
 
 import tornado.ioloop
 import tornado.web
-import logging, binascii, cgi
+import logging, binascii, cgi, shelve, pickle, shutil
 import config, cache, processors, filestuff, search, worker
 from dateutil.parser import parse as date_parse
 from threading import Semaphore
@@ -80,12 +80,18 @@ class Server(object):
 		self.preview_lines = configuration.preview_lines
 		self.processors = configuration.processors
 		self.send_etags = configuration.send_etags
+		self.runtime_vars = shelve.open(configuration.runtime_vars, 'c', protocol = pickle.HIGHEST_PROTOCOL)
 		skip = []
 		if not self.preview_lines:
 			skip.append('preview')
 		else:
 			preview_root = path_join(configuration.cache_dir, 'preview')
-			# TODO: Check runtime db variables for preview lines.  If it's different from before, then delete all of preview_root.
+			if self.preview_lines != self.getvar('PREVIEW_LINES'):
+				try:
+					shutil.rmtree(preview_root)
+				except OSError:
+					pass
+				self.setvar('PREVIEW_LINES', self.preview_lines)
 
 		self.caches.update(self.get_caches(configuration, self.process_funcs(self), skip))
 		if configuration.use_search_cache:
@@ -97,6 +103,13 @@ class Server(object):
 		self.close()
 	def __getitem__(self, key):
 		return self.cache[key]
+	def getvar(self, key):
+		try:
+			return self.runtime_vars[key]
+		except KeyError:
+			return None
+	def setvar(self, key, value):
+		self.runtime_vars[key] = value
 	@property
 	def cache(self):
 		return self.caches['document']
@@ -150,6 +163,12 @@ class Server(object):
 			self.workers.finish()
 			self.workers.join()
 			self.workers = None
+		if self.search is not None:
+			self.search.close()
+			self.search = None
+		if self.runtime_vars is not None:
+			self.runtime_vars.close()
+			self.runtime_vars = None
 
 
 

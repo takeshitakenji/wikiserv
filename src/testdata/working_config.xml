@@ -7,6 +7,7 @@
 	<document-root>test_root</document-root>
 	<preview-lines>10</preview-lines>
 	<worker-threads>4</worker-threads>
+	<runtime-vars>test_vars.db</runtime-vars>
 	<cache dir="test_cache">
 		<checksum-function>sha1</checksum-function>
 		<max-age>86400</max-age>

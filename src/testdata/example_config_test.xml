@@ -4,6 +4,7 @@
 	<bind-address>127.0.0.1</bind-address>
 	<bind-port>8080</bind-port>
 	<document-root>example-source</document-root>
+	<runtime-vars>test_vars.db</runtime-vars>
 	<cache dir="example-cache">
 		<checksum-function>sha1</checksum-function>
 		<max-age>86400</max-age>

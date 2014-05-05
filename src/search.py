@@ -3,7 +3,7 @@ import sys
 if sys.version_info < (3, 3):
 	raise RuntimeError('At least Python 3.3 is required')
 
-import logging, os, codecs, shelve, pickle, os.path
+import logging, os, codecs, shelve, pickle, os.path, stat
 import config, cache, processors, filestuff
 from datetime import datetime, timedelta
 from pytz import utc
@@ -211,7 +211,7 @@ class SearchCache(object):
 
 class Search(object):
 	Info = namedtuple('Info', ['name', 'modified', 'size'])
-	__slots__ = 'server',
+	__slots__ = 'server', '__cache',
 	@staticmethod
 	def find_files(root):
 		for path, dnames, fnames in os.walk(root):
@@ -221,30 +221,83 @@ class Search(object):
 			for fname in fnames:
 				if not fname.startswith('.'):
 					yield path_join(path, fname)
-	def __init__(self, server):
+	def __init__(self, server, cache_path = None, max_age = None, max_entries = None, auto_scrub = False):
 		self.server = server
+		if cache_path is not None:
+			if cache_options is None:
+				cache_options = cache.Cache.Options(0, 0, False)
+			self.__cache = SearchCache(cache_path, \
+					(lambda filter_func: sorted(self.filter_files(filter_func), key = lambda x: x.name)),
+					self.get_latest_mtime,
+					max_age, max_entries, auto_scrub)
+		else:
+			self.__cache = None
 	def __del__(self):
 		self.close()
 	def close(self):
-		self.server = None
+		if self.__cache is not None:
+			self.__cache.close()
+			self.__cache = None
+		if self.server is not None:
+			self.server = None
 	@classmethod
 	def get_info(cls, path, root):
 		with filestuff.LockedFile(path) as f:
 			return cls.Info(relpath(path, root), f.modified, f.size)
-	def find_by_path(self, start, end, filter_func = None):
-		if filter_func is None:
-			filter_func = lambda path, root: True
-		root = self.server.cache.source_root
-		find_files = [path for path in sorted(cache.Cache.find_files(root)) if filter_func(relpath(path, root), root)]
-		# Cache [filter] = find_files, newest_mtime
-		found = []
-		for path in itertools.islice(find_files, start, end, 1):
+	@staticmethod
+	def itertree(root):
+		for path, dnames, fnames in os.walk(root):
+			yield path, True
+			for dname in dnames:
+				yield path, False
+	def get_latest_mtime(self, refresh = False):
+		# Will only be called if caching is enabled
+		latest_mtime = self.server.getvar('LATEST_MTIME')
+		if not refresh and latest_mtime is None:
+			return latest_mtime
+		for path, path_isdir in cls.itertree(self.server.cache.source_root):
 			try:
-				with filestuff.LockedFile(path) as f:
-					found.append(self.Info(relpath(path, root), f.modified, f.size))
+				info = os.stat(path)
 			except OSError:
-				pass
-		return found, (start > 0), (end < len(find_files) - 1)
+				continue
+			modified = datetime.utcfromtimestamp(info.st_mtime).replace(tzinfo = utc)
+			if latest_mtime is None or modified > latest_mtime:
+				latest_mtime = modified
+		self.server.setvar('LATEST_MTIME', latest_mtime)
+		return latest_mtime
+	def filter_files(self, filter_func):
+		latest_mtime = self.server.getvar('LATEST_MTIME')
+		root = self.server.cache.source_root
+		for path, path_isdir in cls.itertree(root):
+			try:
+				info = os.stat(path)
+			except OSError:
+				continue
+			modified = datetime.utcfromtimestamp(info.st_mtime).replace(tzinfo = utc)
+			if latest_mtime is None or modified > latest_mtime:
+				latest_mtime = modified
+			if path_isdir:
+				continue
+
+			if filter_func(relpath(path, root)):
+				try:
+					with filestuff.LockedFile(path) as f:
+						info = self.Info(relpath(path, root), f.modified, f.size)
+					yield info
+				except OSError:
+					pass
+		self.server.setvar('LATEST_MTIME', latest_mtime)
+		return latest_mtime
+	def find_by_path(self, start, end, filter_func = None):
+		found = []
+		if filter_func is None or self.__cache is None:
+			if filter_func is None:
+				filter_func = lambda path, root: True
+			all_found = sorted(self.filter_files(filter_func), key = lambda x: x.name)
+		else:
+			all_found = self.cache(filter_func)
+		found = list(itertools.islice(all_found, start, end, 1))
+		return found, (start > 0), (end < len(all_found) - 1)
 
 
 

@@ -83,6 +83,7 @@ class Configuration(object):
 		if setlog:
 			logging.basicConfig(level = self.log_level)
 		self.source_dir = self.get_path(dirname(stream.name), self.xpath_single(document, '/configuration/document-root/text()').strip())
+		self.runtime_vars = self.get_path(dirname(stream.name), self.xpath_single(document, '/configuration/runtime-vars/text()').strip())
 		try:
 			self.preview_lines = int(self.xpath_single(document, '/configuration/preview-lines/text()').strip())
 		except KeyError:
