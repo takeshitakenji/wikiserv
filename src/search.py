@@ -90,9 +90,9 @@ class ContentFilter(Filter):
 class SearchCache(object):
 	__slots__ = '__db', '__sorted_scan', '__latest_mtime_callback', '__options', '__lock',
 	def __init__(self, dbfile, sorted_scan, latest_mtime_callback, max_age = None, max_entries = None, auto_scrub = False):
-		# sorted_scan should return (latest_mtime, sorted_list)
+		# sorted_scan(search_filter) should return (latest_mtime, sorted_list)
 		self.__db = shelve.open(dbfile, 'c', protocol = pickle.HIGHEST_PROTOCOL)
-		self.__miss_method = miss_method
+		self.__sorted_scan = sorted_scan
 		self.__latest_mtime_callback = latest_mtime_callback
 		self.__lock = Semaphore()
 
