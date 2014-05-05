@@ -170,17 +170,18 @@ class SearchCache(object):
 	def schedule_scrub(self, tentative = False):
 		self.scrub(tentantive)
 	def __remove(self, key, date_key):
-		del db[key]
-		del db[date_key]
+		del self.__db[key]
+		del self.__db[date_key]
 	def scrub(self, tentative = False):
 		# Same features as cache.Cache
 		mtime = self.__latest_mtime_callback()
+		cutoff = None
 		if self.options.max_age is not None:
 			cutoff = datetime.utcnow().replace(tzinfo = utc) - self.options.max_age
 		entries = []
 		LOGGER.info('Scrubbing cache %s' % self)
 		with self.__lock:
-			for key in self.__db:
+			for key in list(self.__db):
 				if key.startswith('=date:'):
 					continue
 				date_key = '=date:' + key
@@ -245,6 +246,7 @@ class Search(object):
 
 if __name__ == '__main__':
 	import unittest
+	from time import sleep
 	logging.basicConfig(level = logging.DEBUG)
 	class FilterTest(unittest.TestCase):
 		def test_scrub(self):
@@ -308,4 +310,42 @@ if __name__ == '__main__':
 			self.assertEqual(results, ['bar', 'baz', 'x/a/z', 'x/y/a'])
 			self.assertEqual(self.count, 1)
 			self.assertEqual(len(self.cache), 1)
+	class ExpiringSearchCacheTest(BaseSearchCacheTest):
+		def get_cache(self):
+			return SearchCache(dict, self.sorted_scan, (lambda: self.mtime), max_age = 1)
+		def test_expire(self):
+			func = PathFilter('a')
+			results = self.cache(func)
+			self.assertEqual(results, ['bar', 'baz', 'x/a/z', 'x/y/a'])
+			self.assertEqual(self.count, 1)
+			sleep(2)
+
+			self.cache.scrub()
+
+			results = self.cache(func)
+			self.assertEqual(results, ['bar', 'baz', 'x/a/z', 'x/y/a'])
+			self.assertEqual(self.count, 2)
+	class LRUCacheTest(BaseSearchCacheTest):
+		def get_cache(self):
+			return SearchCache(dict, self.sorted_scan, (lambda: self.mtime), max_entries = 2)
+		def test_expire(self):
+			func1 = PathFilter('a')
+			results = self.cache(func1)
+			self.assertEqual(results, ['bar', 'baz', 'x/a/z', 'x/y/a'])
+			self.assertEqual(self.count, 1)
+
+			func2 = PathFilter('b')
+			results = self.cache(func2)
+			self.assertEqual(results, ['bar', 'baz'])
+			self.assertEqual(self.count, 2)
+
+			func3 = PathFilter('c')
+			results = self.cache(func3)
+			self.assertEqual(results, [])
+			self.assertEqual(self.count, 3)
+
+			self.cache.scrub()
+			results = self.cache(func1)
+			self.assertEqual(results, ['bar', 'baz', 'x/a/z', 'x/y/a'])
+			self.assertEqual(self.count, 4)
 	unittest.main()
