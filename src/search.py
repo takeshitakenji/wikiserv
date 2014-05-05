@@ -3,7 +3,7 @@ import sys
 if sys.version_info < (3, 3):
 	raise RuntimeError('At least Python 3.3 is required')
 
-import logging, os, codecs, shelve, pickle
+import logging, os, codecs, shelve, pickle, os.path
 import config, cache, processors, filestuff
 from datetime import datetime, timedelta
 from pytz import utc
@@ -15,10 +15,10 @@ from threading import Semaphore
 LOGGER = logging.getLogger('wikiserv')
 
 
-def scrub_terms(string):
+def scrub_terms(string, term_cleaner = lambda term: term):
 	if not string:
 		raise ValueError(string)
-	terms = (x.strip().lower() for x in string.split())
+	terms = (term_cleaner(x.strip().lower()) for x in string.split())
 	# Clean up the mess
 	terms = tuple(sorted({x for x in terms if x}))
 	if not terms:
@@ -41,7 +41,7 @@ class Filter(object):
 class PathFilter(Filter):
 	__slots__ = 'terms',
 	def __init__(self, string):
-		self.terms = scrub_terms(string)
+		self.terms = scrub_terms(string, lambda term: term.replace('/', os.path.sep))
 		Filter.__init__(self, 'path=%s' % ' '.join(self.terms))
 	def __call__(self, path, root):
 		path = path.lower()
@@ -86,12 +86,23 @@ class ContentFilter(Filter):
 			return False
 
 
+class Entry(object):
+	__slots__ = 'timestamp', 'content'
+	def __init__(self, content):
+		self.timestamp = datetime.utcnow().replace(tzinfo = utc)
+		self.content = list(content)
+	def refresh(self):
+		self.timestamp = datetime.utcnow().replace(tzinfo = utc)
+		return self
 
 class SearchCache(object):
 	__slots__ = '__db', '__sorted_scan', '__latest_mtime_callback', '__options', '__lock',
 	def __init__(self, dbfile, sorted_scan, latest_mtime_callback, max_age = None, max_entries = None, auto_scrub = False):
 		# sorted_scan(search_filter) should return (latest_mtime, sorted_list)
-		self.__db = shelve.open(dbfile, 'c', protocol = pickle.HIGHEST_PROTOCOL)
+		if callable(dbfile):
+			self.__db = dbfile()
+		else:
+			self.__db = shelve.open(dbfile, 'c', protocol = pickle.HIGHEST_PROTOCOL)
 		self.__sorted_scan = sorted_scan
 		self.__latest_mtime_callback = latest_mtime_callback
 		self.__lock = Semaphore()
@@ -105,6 +116,9 @@ class SearchCache(object):
 				raise ValueError('Invalid number of maximum entries: %d' % max_entries)
 		auto_scrub = bool(auto_scrub)
 		self.__options = cache.Cache.Options(max_age, max_entries, auto_scrub)
+	def __len__(self):
+		with self.__lock:
+			return len(self.__db)
 	def __del__(self):
 		self.close()
 	def __enter__(self):
@@ -113,19 +127,38 @@ class SearchCache(object):
 		self.close()
 	def close(self):
 		if self.__db is not None:
-			self.__db.close()
+			try:
+				self.__db.close()
+			except AttributeError:
+				pass
 			self.__db = None
-	def __getitem__(self, search_filter):
+	def __call__(self, search_filter):
 		if not isinstance(search_filter, Filter):
 			raise ValueError(search_filter)
-		raise NotImplementedError
 		# NOTE: latest_mtime_callback should be called to check mtime before going through with a scan.
 		# Once search results have been computed, get utcnow().replace(tzinfo = utc)
+		do_scrub = False
+		# Scrub at some point!
 
 
-		# Use lock when actually storing to/getting from database
+		str_filter = str(search_filter)
+		LOGGER.debug('Cached search using %s' % str_filter)
+		mtime = self.__latest_mtime_callback()
 		with self.__lock:
-			pass
+			try:
+				entry = self.__db[str_filter]
+				if entry.timestamp < mtime:
+					raise ValueError
+				self.__db[str_filter] = entry.refresh()
+
+				return entry.content
+			except (KeyError, ValueError):
+				pass
+
+		entry = Entry(self.__sorted_scan(search_filter))
+		with self.__lock:
+			self.__db[str_filter] = entry
+		return entry.content
 	def schedule_scrub(self, tentative = False):
 		self.scrub(tentantive)
 	def scrub(self, tentative = False):
@@ -185,4 +218,51 @@ if __name__ == '__main__':
 			self.assertTrue(func('Bar/foo', None))
 			self.assertTrue(func('fOo', None))
 			self.assertTrue(func('baR', None))
+	class SearchCacheTest(unittest.TestCase):
+		FILES = [
+			'foo',
+			'bar',
+			'baz',
+			'x/y/z',
+			'x/y/a',
+			'x/a/z',
+			'1/4/6/12',
+		]
+		def sorted_scan(self, filter_func):
+			self.count += 1
+			return sorted((f for f in self.FILES if filter_func(f, None)))
+		def setUp(self):
+			self.mtime = datetime.utcnow().replace(tzinfo = utc)
+			self.cache = SearchCache(dict, self.sorted_scan, lambda: self.mtime)
+			self.count = 0
+		def tearDown(self):
+			self.cache.close()
+		def test_miss(self):
+			func = PathFilter('a')
+			results = self.cache(func)
+			self.assertEqual(results, ['bar', 'baz', 'x/a/z', 'x/y/a'])
+			self.assertEqual(self.count, 1)
+		def test_miss_2(self):
+			func = PathFilter('a')
+			results = self.cache(func)
+			self.assertEqual(results, ['bar', 'baz', 'x/a/z', 'x/y/a'])
+			self.assertEqual(self.count, 1)
+			self.assertEqual(len(self.cache), 1)
+
+			func = PathFilter('/')
+			results = self.cache(func)
+			self.assertEqual(results, ['1/4/6/12', 'x/a/z', 'x/y/a', 'x/y/z'])
+			self.assertEqual(self.count, 2)
+			self.assertEqual(len(self.cache), 2)
+		def test_miss_hit(self):
+			func = PathFilter('a')
+			results = self.cache(func)
+			self.assertEqual(results, ['bar', 'baz', 'x/a/z', 'x/y/a'])
+			self.assertEqual(self.count, 1)
+			self.assertEqual(len(self.cache), 1)
+
+			results = self.cache(func)
+			self.assertEqual(results, ['bar', 'baz', 'x/a/z', 'x/y/a'])
+			self.assertEqual(self.count, 1)
+			self.assertEqual(len(self.cache), 1)
 	unittest.main()
