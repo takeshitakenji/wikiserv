@@ -395,7 +395,7 @@ class Cache(object):
 					# This is < because when tentative == True, an entry
 					# may be inserted.
 					return False
-		LOGGER.debug('Scrubbing cache %s' % self)
+		LOGGER.info('Scrubbing cache %s' % self)
 
 		with FileLock(self.lockfile, FileLock.EXCLUSIVE):
 			entries = []
