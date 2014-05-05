@@ -13,6 +13,7 @@ from collections import namedtuple
 from threading import Semaphore
 from queue import Queue
 
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -156,12 +157,20 @@ class SearchCache(object):
 
 		LOGGER.debug('No matches for %s; calling sorted scan' % str_filter)
 		entry_content = list(self.__sorted_scan(search_filter))
-		entry_timestamp = self.utcnow()
+		new_entry_timestamp = self.utcnow()
 		with self.__lock:
-			self.__db[date_key] = entry_timestamp
-			self.__db[str_filter] = entry_content
-			if not updating:
-				self.__length += 1
+			other_updated = False
+			try:
+				# Done this way because another thread might've updated it while DB wasn't locked.
+				other_updated = (self.__db[date_key] > entry_timestamp)
+			except KeyError:
+				pass
+			if not other_updated:
+				self.__db[date_key] = new_entry_timestamp
+				self.__db[str_filter] = entry_content
+				if not updating:
+					# Inside of "not other_updated" because another thread might've inserted this while DB wasn't locked.
+					self.__length += 1
 		return entry_content
 	@property
 	def options(self):
