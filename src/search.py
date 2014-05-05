@@ -145,7 +145,8 @@ class SearchCache(object):
 		with self.__lock:
 			try:
 				entry_timestamp = self.__db[date_key]
-				if entry_timestamp < mtime:
+				if mtime is None or entry_timestamp < mtime:
+					# If mtime is None, then there are no files left
 					raise ValueError
 				self.__db[date_key] = self.utcnow()
 
@@ -200,7 +201,8 @@ class SearchCache(object):
 					continue
 				date_key = '=date:' + key
 				entry_timestamp = self.__db[date_key]
-				if entry_timestamp < mtime:
+				if mtime is None or entry_timestamp < mtime:
+					# If mtime is none, then there are no files left
 					self.__remove(key, date_key)
 					continue
 				elif cutoff is not None and entry_timestamp < cutoff:
@@ -339,6 +341,8 @@ if __name__ == '__main__':
 		def sorted_scan(self, filter_func):
 			self.count += 1
 			return sorted((f for f in self.FILES if filter_func(f, None)))
+		def get_mtime(self, freshen):
+			return self.mtime
 		def get_cache(self):
 			raise NotImplementedError
 		def setUp(self):
@@ -349,7 +353,7 @@ if __name__ == '__main__':
 			self.cache.close()
 	class SearchCacheTest(BaseSearchCacheTest):
 		def get_cache(self):
-			return SearchCache(dict, self.sorted_scan, lambda freshen: self.mtime)
+			return SearchCache(dict, self.sorted_scan, self.get_mtime)
 		def test_miss(self):
 			func = PathFilter('a')
 			results = self.cache(func)
@@ -378,6 +382,18 @@ if __name__ == '__main__':
 			self.assertEqual(results, ['bar', 'baz', 'x/a/z', 'x/y/a'])
 			self.assertEqual(self.count, 1)
 			self.assertEqual(len(self.cache), 1)
+		def test_miss_hit_invalid_mtime(self):
+			self.mtime = None
+			func = PathFilter('a')
+			results = self.cache(func)
+			self.assertEqual(results, ['bar', 'baz', 'x/a/z', 'x/y/a'])
+			self.assertEqual(self.count, 1)
+			self.assertEqual(len(self.cache), 1)
+
+			results = self.cache(func)
+			self.assertEqual(results, ['bar', 'baz', 'x/a/z', 'x/y/a'])
+			self.assertEqual(self.count, 2)
+			self.assertEqual(len(self.cache), 1)
 		def test_new_mtime(self):
 			func = PathFilter('a')
 			results = self.cache(func)
@@ -405,9 +421,22 @@ if __name__ == '__main__':
 			results = self.cache(func)
 			self.assertEqual(results, ['bar', 'baz', 'x/a/z', 'x/y/a'])
 			self.assertEqual(self.count, 2)
+		def test_new_invalid_mtime_scrub(self):
+			func = PathFilter('a')
+			results = self.cache(func)
+			self.assertEqual(results, ['bar', 'baz', 'x/a/z', 'x/y/a'])
+			self.assertEqual(self.count, 1)
+
+			self.mtime = None
+			self.cache.scrub()
+
+			func = PathFilter('a')
+			results = self.cache(func)
+			self.assertEqual(results, ['bar', 'baz', 'x/a/z', 'x/y/a'])
+			self.assertEqual(self.count, 2)
 	class ExpiringSearchCacheTest(BaseSearchCacheTest):
 		def get_cache(self):
-			return SearchCache(dict, self.sorted_scan, (lambda freshen: self.mtime), max_age = 1)
+			return SearchCache(dict, self.sorted_scan, self.get_mtime, max_age = 1)
 		def test_expire(self):
 			func = PathFilter('a')
 			results = self.cache(func)
@@ -422,7 +451,7 @@ if __name__ == '__main__':
 			self.assertEqual(self.count, 2)
 	class LRUCacheTest(BaseSearchCacheTest):
 		def get_cache(self):
-			return SearchCache(dict, self.sorted_scan, (lambda freshen: self.mtime), max_entries = 2)
+			return SearchCache(dict, self.sorted_scan, self.get_mtime, max_entries = 2)
 		def test_expire(self):
 			func1 = PathFilter('a')
 			results = self.cache(func1)
@@ -445,7 +474,7 @@ if __name__ == '__main__':
 			self.assertEqual(self.count, 4)
 	class AutoLRUCacheTest(BaseSearchCacheTest):
 		def get_cache(self):
-			return SearchCache(dict, self.sorted_scan, (lambda freshen: self.mtime), max_entries = 2, auto_scrub = True)
+			return SearchCache(dict, self.sorted_scan, self.get_mtime, max_entries = 2, auto_scrub = True)
 		def test_expire(self):
 			func1 = PathFilter('a')
 			results = self.cache(func1)
