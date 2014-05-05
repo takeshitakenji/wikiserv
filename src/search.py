@@ -87,7 +87,7 @@ class ContentFilter(Filter):
 
 
 class SearchCache(object):
-	__slots__ = '__db', '__sorted_scan', '__latest_mtime_callback', '__options', '__lock',
+	__slots__ = '__db', '__sorted_scan', '__latest_mtime_callback', '__options', '__lock', '__length',
 	@staticmethod
 	def utcnow():
 		return datetime.utcnow().replace(tzinfo = utc)
@@ -97,6 +97,7 @@ class SearchCache(object):
 			self.__db = dbfile()
 		else:
 			self.__db = shelve.open(dbfile, 'c', protocol = pickle.HIGHEST_PROTOCOL)
+		self.__length = sum((1 for key in self.__db if not key.startswith('=date:')))
 		self.__sorted_scan = sorted_scan
 		self.__latest_mtime_callback = latest_mtime_callback
 		self.__lock = Semaphore()
@@ -112,7 +113,7 @@ class SearchCache(object):
 		self.__options = cache.Cache.Options(max_age, max_entries, auto_scrub)
 	def __len__(self):
 		with self.__lock:
-			return sum((1 for key in self.__db if not key.startswith('=date:')))
+			return self.__length
 	def __del__(self):
 		self.close()
 	def __enter__(self):
@@ -139,6 +140,7 @@ class SearchCache(object):
 		LOGGER.debug('Cached search using %s' % str_filter)
 		date_key = '=date:' + str_filter
 		mtime = self.__latest_mtime_callback()
+		updating = True
 		with self.__lock:
 			try:
 				entry_timestamp = self.__db[date_key]
@@ -147,7 +149,9 @@ class SearchCache(object):
 				self.__db[date_key] = self.utcnow()
 
 				return self.__db[str_filter]
-			except (KeyError, ValueError):
+			except KeyError:
+				updating = False
+			except ValueError:
 				pass
 
 		LOGGER.debug('No matches for %s; calling sorted scan' % str_filter)
@@ -156,6 +160,8 @@ class SearchCache(object):
 		with self.__lock:
 			self.__db[date_key] = entry_timestamp
 			self.__db[str_filter] = entry_content
+			if not updating:
+				self.__length += 1
 		return entry_content
 	def schedule_scrub(self, tentative = False):
 		self.scrub(tentantive)
