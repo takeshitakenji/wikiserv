@@ -500,6 +500,7 @@ if __name__ == '__main__':
 		class FakeServer(VarHost):
 			__slots__ = 'root',
 			def __init__(self, configuration):
+				LOGGER.debug('Using fake server with runtime_vars=%s and root=%s' % (configuration.runtime_vars, configuration.source_dir))
 				VarHost.__init__(self, configuration.runtime_vars)
 				self.root = configuration.source_dir
 			def __del__(self):
