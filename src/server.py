@@ -82,6 +82,7 @@ class Server(object):
 		self.processors = configuration.processors
 		self.send_etags = configuration.send_etags
 		self.runtime_vars = shelve.open(configuration.runtime_vars, 'c', protocol = pickle.HIGHEST_PROTOCOL)
+		common.fix_perms(configuration.runtime_vars)
 		skip = []
 		if not self.preview_lines:
 			skip.append('preview')

@@ -12,8 +12,8 @@ file_perms = stat.S_IRUSR|stat.S_IWUSR
 
 def fix_dir_perms(path):
 	info = os.stat(path)
-	if (info.st_mode & dir_perms) != dir_perms:
-		chmod(path, dir_perms)
+	if (info.st_mode & allbits) != dir_perms:
+		os.chmod(path, dir_perms)
 def fix_perms(handle):
 	try:
 		info = os.fstat(handle.fileno())
