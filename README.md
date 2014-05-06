@@ -120,6 +120,9 @@ Design
 As of the **cached-search** tag, the following setup is used.  An arrow
 going downward means writing and an arrow going upward means reading.
 
+(*Note:* `os.utime` always updates modification time of the cache
+entries themselves.  This is the only timestamp used in `scrub()`.)
+
 ![Design as of cached-search tag](doc/textevent_justification.png)
 
 Because of how the `process()` methods write directly to a handle, it is
