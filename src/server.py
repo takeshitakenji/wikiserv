@@ -24,7 +24,7 @@ LOGGER = logging.getLogger('wikiserv')
 
 
 class Server(object):
-	__slots__ = 'configuration', 'caches', 'processors', 'send_etags', 'search', 'preview_lines', 'workers',
+	__slots__ = 'configuration', 'caches', 'processors', 'send_etags', 'search', 'preview_lines', 'workers', 'runtime_vars',
 	instance = None
 	ilock = Semaphore()
 	localzone = tzlocal()
@@ -77,6 +77,7 @@ class Server(object):
 	def __init__(self, configuration):
 		self.caches = {}
 		self.workers = None
+		self.search = None
 		self.preview_lines = configuration.preview_lines
 		self.processors = configuration.processors
 		self.send_etags = configuration.send_etags
@@ -95,9 +96,10 @@ class Server(object):
 
 		self.caches.update(self.get_caches(configuration, self.process_funcs(self), skip))
 		if configuration.use_search_cache:
-			# TODO
-			raise RuntimeError
-		self.search = search.Search(self)
+			self.search = search.Search(self, path_join(configuration.cache_dir, 'search'), \
+					configuration.search_max_age, configuration.search_max_entries, configuration.search_auto_scrub)
+		else:
+			self.search = search.Search(self)
 		self.workers = worker.WorkerPool(configuration.worker_threads, autostart = True)
 	def __del__(self):
 		self.close()

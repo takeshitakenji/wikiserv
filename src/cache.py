@@ -169,17 +169,21 @@ class FileLock(object):
 		with open(self.__path, 'wb'):
 			pass
 		self.__fd = None
-	def __enter__(self):
+	def acquire(self):
 		if self.__mode == self.EXCLUSIVE:
 			self.__fd = open(self.__path, 'wb')
 			fcntl.lockf(self.__fd, fcntl.LOCK_EX)
 		else:
 			self.__fd = open(self.__path, 'rb')
 			fcntl.lockf(self.__fd, fcntl.LOCK_SH)
-	def __exit__(self, type, value, tb):
+	def release(self):
 		fcntl.lockf(self.__fd, fcntl.LOCK_UN)
 		self.__fd.close()
 		self.__fd = None
+	def __enter__(self):
+		self.acquire()
+	def __exit__(self, type, value, tb):
+		self.release()
 
 
 class NoCache(Exception):

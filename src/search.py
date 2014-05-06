@@ -230,11 +230,11 @@ class SearchCache(BaseSearchCache):
 			if (info.st_mode & cls.allbits) != cls.file_perms:
 				os.chmod(handle, cls.file_perms)
 
-	__slots__ = '__lockfile', '__lockhandle'
+	__slots__ = '__lock',
 	def __init__(self, dbfile, sorted_scan, latest_mtime_callback, max_age = None, max_entries = None, auto_scrub = None):
-		self.__lockfile = path_join(dirname(dbfile), '.lock-' + basename(dbfile))
-		self.__lockhandle = None
-		with open(self.__lockfile, 'wb') as f:
+		lockfile = path_join(dirname(dbfile), '.lock-' + basename(dbfile))
+		self.__lock = cache.FileLock(lockfile, cache.FileLock.EXCLUSIVE)
+		with open(lockfile, 'wb') as f:
 			self.fix_perms(f)
 		BaseSearchCache.__init__(self, shelve.open(dbfile, 'c', pickle.HIGHEST_PROTOCOL), \
 				sorted_scan, latest_mtime_callback, max_age, max_entries, auto_scrub)
@@ -244,11 +244,9 @@ class SearchCache(BaseSearchCache):
 			self._BaseSearchCache__db.close()
 			self._BaseSearchCache__db = None
 	def __enter__(self):
-		self.__lockhandle = ExclusivelyLockedFile(self.__lockfile)
-		return self.__lockhandle.__enter__()
+		self.__lock.acquire()
 	def __exit__(self, type, value, tb):
-		self.__lockhandle.__exit(type, value, tb)
-		self.__lockhandle = None
+		self.__lock.release()
 
 class TemporarySearchCache(BaseSearchCache):
 	__slots__ = '__lock',
@@ -259,7 +257,7 @@ class TemporarySearchCache(BaseSearchCache):
 		if self._BaseSearchCache__db is not None:
 			self._BaseSearchCache__db = None
 	def __enter__(self):
-		return self.__lock.acquire()
+		self.__lock.acquire()
 	def __exit__(self, type, value, tb):
 		self.__lock.release()
 
@@ -282,15 +280,12 @@ class Search(object):
 					yield path_join(path, fname)
 	def __init__(self, server, cache_path = None, max_age = None, max_entries = None, auto_scrub = False):
 		self.server = server
+		self.__cache = None
 		if cache_path is not None:
-			if cache_options is None:
-				cache_options = cache.Cache.Options(0, 0, False)
 			self.__cache = SearchCache(cache_path, \
 					(lambda filter_func: sorted(self.filter_files(filter_func), key = lambda x: x.name)),
 					self.get_latest_mtime,
 					max_age, max_entries, auto_scrub)
-		else:
-			self.__cache = None
 	def __del__(self):
 		self.close()
 	def close(self):
@@ -320,7 +315,7 @@ class Search(object):
 		latest_mtime = self.server.getvar('LATEST_MTIME')
 		if not refresh and latest_mtime is None:
 			return latest_mtime
-		for path, path_isdir in cls.itertree(self.server.cache.source_root):
+		for path, path_isdir in self.itertree(self.server.cache.source_root):
 			try:
 				info = os.stat(path)
 			except OSError:

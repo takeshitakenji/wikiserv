@@ -15,7 +15,7 @@
 		<auto-scrub />
 		<send-etags />
 	</cache>
-	<seach-cache>
+	<search-cache>
 		<max-age>3600</max-age>
 		<max-entries>32</max-entries>
 		<auto-scrub />

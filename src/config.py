@@ -6,7 +6,7 @@ if sys.version_info < (3, 3):
 from lxml import etree
 from datetime import timedelta
 import hashers, processors
-from os.path import join as path_join, dirname, normpath, isabs
+from os.path import join as path_join, dirname, normpath, isabs, abspath
 import logging
 
 LOGGER = logging.getLogger(__name__)
@@ -124,16 +124,16 @@ class Configuration(object):
 		# Search cache
 		self.use_search_cache = bool(document.xpath('/configuration/search-cache'))
 		try:
-			self.cache_max_age = timedelta(seconds = positive_int(self.xpath_single(document, '/configuration/search-cache/max-age/text()')))
+			self.search_max_age = timedelta(seconds = positive_int(self.xpath_single(document, '/configuration/search-cache/max-age/text()')))
 		except KeyError:
-			self.cache_max_age = None
+			self.search_max_age = None
 
 		try:
-			self.cache_max_entries = positive_int(self.xpath_single(document, '/configuration/search-cache/max-entries/text()'))
+			self.search_max_entries = positive_int(self.xpath_single(document, '/configuration/search-cache/max-entries/text()'))
 		except KeyError:
-			self.cache_max_entries = None
+			self.search_max_entries = None
 
-		self.cache_auto_scrub = bool(document.xpath('/configuration/search-cache/auto-scrub'))
+		self.search_auto_scrub = bool(document.xpath('/configuration/search-cache/auto-scrub'))
 
 
 
@@ -159,7 +159,7 @@ class Configuration(object):
 if __name__ == '__main__':
 	import unittest, logging
 	from hashlib import sha1
-	from os.path import join as path_join, dirname, abspath
+	from os.path import join as path_join, dirname
 	logging.basicConfig(level = logging.DEBUG)
 	
 	class TestConfig(unittest.TestCase):
