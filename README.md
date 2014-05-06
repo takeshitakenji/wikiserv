@@ -120,8 +120,10 @@ Design
 As of the **cached-search** tag, the following setup is used.  An arrow
 going downward means writing and an arrow going upward means reading.
 
-(*Note:* `os.utime` always updates modification time of the cache
-entries themselves.  This is the only timestamp used in `scrub()`.)
+* `os.utime` always updates modification time of the cache
+  entries themselves.  This is the only timestamp used in `scrub()`.)
+* When caching is disallowed, the headers always have their entries
+  updated.
 
 ![Design as of cached-search tag](doc/textevent_justification.png)
 
@@ -133,3 +135,10 @@ This isn't ideal.
 A better solution is being worked on, using a design where the writing
 done by `process()` is actually triggering events on an object which
 will execute callbacks upon said events.
+
+![New design](doc/textevent_fix.png)
+
+With this setup, writing to the cache is accomplished with a tee,
+reading from it is a simple `shutil.copyfileobj()`, and disallowing the
+cache just removes the tee.  The `process()` setup doesn't need to
+change at all.
