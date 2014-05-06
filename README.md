@@ -114,3 +114,19 @@ Design
 
 7. Any source file revision control is left to the person managing the
    source directory tree.
+
+### TextEvent
+
+As of the **cached-search** tag, the following setup is used.  An arrow
+going downward means writing and an arrow going upward means reading.
+
+![Design as of cached-search tag](doc/textevent_justification.png)
+
+Because of how the `process()` methods write directly to a handle, it is
+very difficult to operate with caching disallowed.  The current kludge
+is to use a thread and a pipe to facilitate a pseudo-temporary file.
+This isn't ideal.
+
+A better solution is being worked on, using a design where the writing
+done by `process()` is actually triggering events on an object which
+will execute callbacks upon said events.
