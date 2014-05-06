@@ -146,6 +146,7 @@ class BaseSearchCache(object):
 					raise ValueError
 				self.__db[date_key] = self.utcnow()
 
+				LOGGER.debug('Returning cached result for %s' % str_filter)
 				return self.__db[str_filter]
 			except KeyError:
 				updating = False
@@ -163,6 +164,7 @@ class BaseSearchCache(object):
 			except KeyError:
 				pass
 			if not other_updated:
+				print(entry_content)
 				self.__db[date_key] = new_entry_timestamp
 				self.__db[str_filter] = entry_content
 				if not updating:
@@ -253,9 +255,9 @@ class TemporarySearchCache(BaseSearchCache):
 
 
 
+FileInfo = namedtuple('FileInfo', ['name', 'modified', 'size'])
 
 class Search(object):
-	Info = namedtuple('Info', ['name', 'modified', 'size'])
 	__slots__ = 'server', '__cache',
 	@staticmethod
 	def find_files(root):
@@ -327,7 +329,7 @@ class Search(object):
 				if filter_func(relpath(path, root), root):
 					try:
 						with filestuff.LockedFile(path) as f:
-							info = self.Info(relpath(path, root), f.modified, f.size)
+							info = FileInfo(relpath(path, root), f.modified, f.size)
 						# Refresh this, just in case
 						if latest_mtime is None or modified > latest_mtime:
 							latest_mtime = modified
@@ -346,7 +348,7 @@ class Search(object):
 				filter_func = lambda path, root: True
 			all_found = sorted(self.filter_files(filter_func), key = lambda x: x.name)
 		else:
-			all_found = self.cache(filter_func)
+			all_found = self.__cache(filter_func)
 		found = list(itertools.islice(all_found, start, end, 1))
 		return found, (start > 0), (end < len(all_found) - 1)
 
