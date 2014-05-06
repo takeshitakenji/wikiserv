@@ -6,7 +6,7 @@ if sys.version_info < (3, 3):
 import tornado.ioloop
 import tornado.web
 import logging, binascii, cgi, shelve, pickle, shutil
-import config, cache, processors, filestuff, search, worker
+import config, cache, processors, filestuff, search, worker, common
 from dateutil.parser import parse as date_parse
 from threading import Semaphore
 from pytz import utc
@@ -66,7 +66,7 @@ class Server(object):
 	def get_caches(cls, configuration, process_funcs, skip = frozenset()):
 		if not isdir(configuration.cache_dir):
 			mkdir(configuration.cache_dir)
-		cache.Cache.fix_dir_perms(configuration.cache_dir)
+		common.fix_dir_perms(configuration.cache_dir)
 
 		pfsrc = None
 		if hasattr(process_funcs, '__getitem__'):
@@ -283,7 +283,7 @@ class IndexHandler(tornado.web.RequestHandler):
 			print('<h1>Wiki Index</h1>', file = self)
 
 		print('<ul>', file = self)
-		server = Server.get_instance() if filter_func else None
+		server = Server.get_instance()
 		for f in files:
 			self.write('\t<li><a href="/%s">%s</a> @ %s (%f kB)' % (cgi.escape(f.name, True), cgi.escape(f.name), f.modified.astimezone(server.localzone).strftime('%c (%Z)'), (float(f.size) / 1024)))
 			if filter_func and server:

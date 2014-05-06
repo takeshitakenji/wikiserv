@@ -6,7 +6,7 @@ if sys.version_info < (3, 3):
 import struct
 from datetime import datetime, timedelta
 from pytz import utc
-import filestuff, worker
+import filestuff, worker, common
 import fcntl, os.path, stat, os, itertools
 from os import fstat, mkdir, fchmod, chmod, utime, remove
 from os.path import join as path_join, isdir, isfile, normpath, dirname, relpath
@@ -208,21 +208,6 @@ class AutoProcess(object):
 
 
 class Cache(object):
-	allbits = stat.S_IRWXU|stat.S_IRWXG|stat.S_IRWXO
-
-	root_perms = stat.S_IRUSR|stat.S_IWUSR|stat.S_IXUSR
-	file_perms = stat.S_IRUSR|stat.S_IWUSR
-
-	@classmethod
-	def fix_dir_perms(cls, path):
-		info = os.stat(path)
-		if (info.st_mode & cls.root_perms) != cls.root_perms:
-			chmod(path, cls.root_perms)
-	@classmethod
-	def fix_perms(cls, handle):
-		info = fstat(handle.fileno())
-		if (info.st_mode & cls.allbits) != cls.file_perms:
-			fchmod(handle.fileno(), cls.file_perms)
 	@staticmethod
 	def find_files(root):
 		for path, dnames, fnames in os.walk(root):
@@ -272,9 +257,9 @@ class Cache(object):
 		# Create files
 		if not isdir(root):
 			mkdir(root)
-		self.fix_dir_perms(self.__root)
+		common.fix_dir_perms(self.__root)
 		with open(self.lockfile, 'wb') as lockf:
-			self.fix_perms(lockf)
+			common.fix_perms(lockf)
 
 		# Store options
 		if max_age is not None and not isinstance(max_age, timedelta):
@@ -327,7 +312,7 @@ class Cache(object):
 						handle = open(cache_path, 'w+b')
 						LOGGER.debug('Entry does not exist at %s' % path)
 						update = False
-					self.fix_perms(handle)
+					common.fix_perms(handle)
 					entry = Entry(handle)
 
 					header = entry.header

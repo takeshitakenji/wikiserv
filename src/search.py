@@ -4,7 +4,7 @@ if sys.version_info < (3, 3):
 	raise RuntimeError('At least Python 3.3 is required')
 
 import logging, os, codecs, shelve, pickle, os.path, stat
-import config, cache, processors, filestuff
+import config, cache, processors, filestuff, common
 from datetime import datetime, timedelta
 from pytz import utc
 import itertools, functools
@@ -218,27 +218,15 @@ class SearchCache(BaseSearchCache):
 	allbits = stat.S_IRWXU|stat.S_IRWXG|stat.S_IRWXO
 	file_perms = stat.S_IRUSR|stat.S_IWUSR
 
-	@classmethod
-	def fix_perms(cls, handle):
-		try:
-			info = os.fstat(handle.fileno())
-			if (info.st_mode & cls.allbits) != cls.file_perms:
-				os.fchmod(handle.fileno(), cls.file_perms)
-		except AttributeError:
-			# handle is a path
-			info = os.stat(handle)
-			if (info.st_mode & cls.allbits) != cls.file_perms:
-				os.chmod(handle, cls.file_perms)
-
 	__slots__ = '__lock',
 	def __init__(self, dbfile, sorted_scan, latest_mtime_callback, max_age = None, max_entries = None, auto_scrub = None):
 		lockfile = path_join(dirname(dbfile), '.lock-' + basename(dbfile))
 		self.__lock = cache.FileLock(lockfile, cache.FileLock.EXCLUSIVE)
 		with open(lockfile, 'wb') as f:
-			self.fix_perms(f)
+			common.fix_perms(f)
 		BaseSearchCache.__init__(self, shelve.open(dbfile, 'c', pickle.HIGHEST_PROTOCOL), \
 				sorted_scan, latest_mtime_callback, max_age, max_entries, auto_scrub)
-		self.fix_perms(dbfile)
+		common.fix_perms(dbfile)
 	def close(self):
 		if self._BaseSearchCache__db is not None:
 			self._BaseSearchCache__db.close()
@@ -300,16 +288,12 @@ class Search(object):
 			return True
 		else:
 			return False
-	@classmethod
-	def get_info(cls, path, root):
-		with filestuff.LockedFile(path) as f:
-			return cls.Info(relpath(path, root), f.modified, f.size)
 	@staticmethod
 	def itertree(root):
 		for path, dnames, fnames in os.walk(root):
 			yield path, True
-			for dname in dnames:
-				yield path, False
+			for fname in fnames:
+				yield path_join(path, fname), False
 	def get_latest_mtime(self, refresh = False):
 		# Will only be called if caching is enabled
 		latest_mtime = self.server.getvar('LATEST_MTIME')
@@ -328,29 +312,36 @@ class Search(object):
 	def filter_files(self, filter_func):
 		latest_mtime = self.server.getvar('LATEST_MTIME')
 		root = self.server.cache.source_root
-		for path, path_isdir in cls.itertree(root):
-			try:
-				info = os.stat(path)
-			except OSError:
-				continue
-			modified = datetime.utcfromtimestamp(info.st_mtime).replace(tzinfo = utc)
-			if latest_mtime is None or modified > latest_mtime:
-				latest_mtime = modified
-			if path_isdir:
-				continue
-
-			if filter_func(relpath(path, root)):
+		try:
+			for path, path_isdir in self.itertree(root):
 				try:
-					with filestuff.LockedFile(path) as f:
-						info = self.Info(relpath(path, root), f.modified, f.size)
-					yield info
+					info = os.stat(path)
 				except OSError:
-					pass
-		self.server.setvar('LATEST_MTIME', latest_mtime)
-		return latest_mtime
+					continue
+				modified = datetime.utcfromtimestamp(info.st_mtime).replace(tzinfo = utc)
+				if latest_mtime is None or modified > latest_mtime:
+					latest_mtime = modified
+				if path_isdir:
+					continue
+
+				if filter_func(relpath(path, root), root):
+					try:
+						with filestuff.LockedFile(path) as f:
+							info = self.Info(relpath(path, root), f.modified, f.size)
+						# Refresh this, just in case
+						if latest_mtime is None or modified > latest_mtime:
+							latest_mtime = modified
+						if any((x is None for x in info._asdict())):
+							raise RuntimeError(info)
+						yield info
+					except OSError:
+						pass
+		finally:
+			self.server.setvar('LATEST_MTIME', latest_mtime)
 	def find_by_path(self, start, end, filter_func = None):
 		found = []
 		if filter_func is None or self.__cache is None:
+			LOGGER.debug('Going around cache because filter_func=%s or cache=%s' % (filter_func, self.__cache))
 			if filter_func is None:
 				filter_func = lambda path, root: True
 			all_found = sorted(self.filter_files(filter_func), key = lambda x: x.name)
