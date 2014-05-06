@@ -29,7 +29,6 @@ Requirements
 Configuration
 -------------
 
-<!-- TODO: Add notes on search-cache setup. -->
 ```xml
 <?xml version="1.0" ?>
 
@@ -46,9 +45,14 @@ Configuration
 		<max-age>86400</max-age><!-- OPTIONAL: Whenever a scrub is performed, delete files that are older than this age (seconds) -->
 		<max-entries>2048</max-entries><!-- OPTIONAL: Use an LRU algorithm to limit the approximate maximum number of entries in the cache -->
 		<auto-scrub /><!-- OPTIONAL: When the LRU algorithm hits the maximum number of entries, automatically scrub the cache to clear up free slots -->
-		<dispatcher-threar /><!-- OPTIONAL: Use the DispatcherCache class instead, which will perform automatic scrubbing in a separate thread -->
+		<dispatcher-thread /><!-- OPTIONAL: Use the DispatcherCache class instead, which will perform automatic scrubbing in a separate thread -->
 		<send-etags /><!-- OPTIONAL: Send Etags based on checksum algorithm -->
 	</cache>
+	<search-cache><!-- OPTIONAL: Simply having this element here enabled cached searches
+		<max-age>3600</max-age><!-- OPTIONAL: Whenever a scrub is performed, delete files that are older than this age (seconds) -->
+		<max-entries>32</max-entries><!-- OPTIONAL: Use an LRU algorithm to limit the approximate maximum number of entries in the cache -->
+		<auto-scrub /><!-- OPTIONAL: When the LRU algorithm hits the maximum number of entries, automatically scrub the cache to clear up free slots -->
+	</search-cache>
 	<processors>
 		<encoding>utf8</encoding><!-- Output encoding passed to all the processors -->
 		<processor>asciidoc-xhtml11</processor><!-- OPTIONAL: Sets the default processor used to convert files to HTML -->
