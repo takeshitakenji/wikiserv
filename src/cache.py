@@ -319,8 +319,10 @@ class Cache(object):
 					new_header = EntryHeader(original.size, True, original.modified, original.checksum(self.__checksum_function))
 					if header is not None and not header.cached:
 						LOGGER.debug('Not cached for %s' % path)
+						if header != new_header:
+							# If anything has changed, update the entry.
+							entry.header = EntryHeader(new_header.size, False, new_header.timestamp, new_header.checksum)
 						# The lock will be acquired after original has been freed
-						entry.header = EntryHeader(new_header.size, False, new_header.timestamp, new_header.checksum)
 						return AutoProcess(entry.header, filestuff.LockedFile(original_path), self.__filter_function)
 					if header != new_header:
 						LOGGER.debug('Calling processor for %s' % path)
@@ -335,9 +337,10 @@ class Cache(object):
 								entry.close()
 							except:
 								LOGGER.exception('When closing entry %s' % entry.header)
-						# The lock will be acquired after original has been freed
+							# The lock will be acquired after original has been freed
 							return AutoProcess(entry.header, filestuff.LockedFile(original_path), self.__filter_function)
 						except NotImplementedError:
+							# Truncate the entry
 							entry.header = new_header
 					entry.seek(0)
 					if not update:
