@@ -23,7 +23,27 @@ LOGGER = logging.getLogger('wikiserv')
 
 
 
-class Server(object):
+class VarHost(object):
+	__slots__ = 'runtime_vars',
+	def __init__(self, path):
+		self.runtime_vars = shelve.open(path, 'c', protocol = pickle.HIGHEST_PROTOCOL)
+		common.fix_perms(path)
+	def __del__(self):
+		self.close()
+	def close(self):
+		if self.runtime_vars is not None:
+			self.runtime_vars.close()
+			self.runtime_vars = None
+	def getvar(self, key):
+		try:
+			return self.runtime_vars[key]
+		except KeyError:
+			return None
+	def setvar(self, key, value):
+		self.runtime_vars[key] = value
+
+
+class Server(VarHost):
 	__slots__ = 'configuration', 'caches', 'processors', 'send_etags', 'search', 'preview_lines', 'workers', 'runtime_vars',
 	instance = None
 	ilock = Semaphore()
@@ -81,8 +101,7 @@ class Server(object):
 		self.preview_lines = configuration.preview_lines
 		self.processors = configuration.processors
 		self.send_etags = configuration.send_etags
-		self.runtime_vars = shelve.open(configuration.runtime_vars, 'c', protocol = pickle.HIGHEST_PROTOCOL)
-		common.fix_perms(configuration.runtime_vars)
+		VarHost.__init__(self, configuration.runtime_vars)
 		skip = []
 		if not self.preview_lines:
 			skip.append('preview')
@@ -106,13 +125,9 @@ class Server(object):
 		self.close()
 	def __getitem__(self, key):
 		return self.cache[key]
-	def getvar(self, key):
-		try:
-			return self.runtime_vars[key]
-		except KeyError:
-			return None
-	def setvar(self, key, value):
-		self.runtime_vars[key] = value
+	@property
+	def root(self):
+		return self.cache.source_root
 	@property
 	def cache(self):
 		return self.caches['document']
@@ -169,9 +184,7 @@ class Server(object):
 		if self.search is not None:
 			self.search.close()
 			self.search = None
-		if self.runtime_vars is not None:
-			self.runtime_vars.close()
-			self.runtime_vars = None
+		VarHost.close(self)
 
 
 
@@ -484,6 +497,20 @@ if __name__ == '__main__':
 	else:
 		def fake_process(inf, outf, cached):
 			raise RuntimeError('Cannot serve pages in scrub mode')
+		class FakeServer(VarHost):
+			__slots__ = 'root',
+			def __init__(self, configuration):
+				VarHost.__init__(self, configuration.runtime_vars)
+				self.root = configuration.source_dir
+			def __del__(self):
+				self.close()
 		cfg.auto_scrub = False
-		Server.get_caches(cfg, fake_process)
-		# cache.scrub() is run as part of Cache constructor.
+		for cache in Server.get_caches(cfg, fake_process).values():
+			cache.close()
+		if cfg.use_search_cache:
+			server = FakeServer(cfg)
+			try:
+				search.Search(server, path_join(cfg.cache_dir, 'search'), \
+						cfg.search_max_age, cfg.search_max_entries, cfg.search_auto_scrub).close()
+			finally:
+				server.close()

@@ -301,7 +301,7 @@ class Search(object):
 		latest_mtime = self.server.getvar('LATEST_MTIME')
 		if not refresh and latest_mtime is None:
 			return latest_mtime
-		for path, path_isdir in self.itertree(self.server.cache.source_root):
+		for path, path_isdir in self.itertree(self.server.root):
 			try:
 				info = os.stat(path)
 			except OSError:
@@ -313,7 +313,7 @@ class Search(object):
 		return latest_mtime
 	def filter_files(self, filter_func):
 		latest_mtime = self.server.getvar('LATEST_MTIME')
-		root = self.server.cache.source_root
+		root = self.server.root
 		try:
 			for path, path_isdir in self.itertree(root):
 				try:
