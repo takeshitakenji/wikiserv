@@ -9,7 +9,7 @@ from threading import Lock
 
 LOGGER = logging.getLogger(__name__)
 
-class TextEventSource(object):
+class BaseTextEventSource(object):
 	STRING_TYPE = NotImplemented
 	Callback = namedtuple('Callback', ['method', 'args', 'kwargs'])
 	__slots__ = '__acumulator', '__accum_len', '__tee_output', '__finishing', '__finished', '__finish_output', '__lock', '__callback',
@@ -37,6 +37,10 @@ class TextEventSource(object):
 	def blank_string_value(cls):
 		cls.check_string_type()
 		return self.STRING_TYPE()
+	@classmethod
+	def string_join(cls, parts):
+		cls.check_string_type()
+		return self.STRING_TYPE().join(parts)
 	def write(self, s):
 		self.check_string_type()
 		if self.__finished.is_set():
@@ -47,6 +51,8 @@ class TextEventSource(object):
 	def set_read(self, length, callback, *args, **kwargs):
 		if self.__finished.is_set():
 			raise IOError('%s is closed' % self)
+		if not callable(callback):
+			raise ValueError('%s is not callable' % callback)
 		raise NotImplementedError
 	def set_finish(self, finish_output = None):
 		self.check_string_type()
@@ -58,6 +64,13 @@ class TextEventSource(object):
 		if self.__finished.is_set():
 			raise IOError('%s is closed' % self)
 		return method(self, *method_args, **method_kwargs)
+
+
+class TextEventSource(BaseTextEventSource):
+	STRING_TYPE = str
+
+class BInaryTextEventSource(BaseTextEventSource):
+	STRING_TYPE = bytes
 
 if __name__ == '__main__':
 	import unittest
