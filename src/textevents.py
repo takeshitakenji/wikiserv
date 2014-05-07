@@ -60,7 +60,6 @@ class BaseTextEventSource(object):
 			return 0
 		do_release = True
 		try:
-			LOGGER.warning('%s: callback=%s' % (self, repr(self)))
 			self.__lock.acquire()
 			tee_output = self.__tee_output
 			if self.__finishing:
