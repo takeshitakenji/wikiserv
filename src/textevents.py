@@ -13,7 +13,6 @@ class BaseTextEventSource(object):
 	STRING_TYPE = NotImplemented
 	Callback = namedtuple('Callback', ['length', 'method', 'args', 'kwargs'])
 	__slots__ = '__accumulator', '__accum_len', '__tee_output', '__finishing', '__finished', '__finish_output', '__lock', '__callback',
-	@classmethod
 	def send_to_callback(self, value, callback):
 		if isinstance(callback, self.Callback):
 			return callback.method(self, value, *callback.args, **callback.kwargs)
@@ -43,6 +42,18 @@ class BaseTextEventSource(object):
 	def string_join(cls, parts):
 		cls.check_string_type()
 		return cls.STRING_TYPE().join(parts)
+	def __put_value(self, value, tee_output, finish_output, callback_output):
+		if tee_output is not None:
+			self.send_to_callback(value, tee_output)
+		if finish_output is not None:
+			self.send_to_callback(value, finish_output)
+		elif callback_output is not None:
+			self.send_to_callback(value, callback_output)
+	def __not_accumulating(self, s):
+		LOGGER.warning('%s: Not accumulating string of length %d due to there being no callback' % (self, len(s)))
+		if self.__accumulator:
+			del self.__accumulator[:]
+			self.__accum_len = 0
 	def write(self, s):
 		self.check_string_type()
 		if self.__finished.is_set():
@@ -51,43 +62,59 @@ class BaseTextEventSource(object):
 			raise IOError('%s doesn\'t support %s objects' % (self, type(s)))
 		if not s:
 			return 0
-		callback_output, finish_output, tee_output = None, None, None
-		value = None
-		with self.__lock:
+		do_release = True
+		try:
+			self.__lock.acquire()
 			tee_output = self.__tee_output
 			if self.__finishing:
-				finish_output = self.__finish_output
-			elif self.__callback is None:
-				LOGGER.warnings('%s: Not accumulating string of length %d due to there being no callback' % (self, len(s)))
 				if self.__accumulator:
 					del self.__accumulator[:]
 					self.__accum_len = 0
+				finish_output = self.__finish_output
+				# We won't be entering back into locked code here
+				self.__lock.release()
+				do_release = False
+				self.__put_value(s, tee_output, finish_output, None)
+			elif self.__callback is None:
+				self.__not_accumulating(s)
 			else:
 				self.__accumulator.append(s)
 				self.__accum_len += len(s)
-				if self.__callback is not None and self.__accum_len >= self.__callback.length:
-					value = self.__accumulator[:]
-					del self.__accumulator[:]
-					if self.__accum_len > self.__callback.length:
-						# If there's some extra length, leave some behind.
-						tosplit = value[-1]
-						toremove = self.__accum_len - self.__callback.length
-						value[-1] = tosplit[:-toremove]
-						self.__accumulator.append(tosplit[-toremove:])
+				try:
+					while not self.__finishing and self.__callback is not None and self.__accum_len >= self.__callback.length:
+						value = self.__accumulator[:]
+						del self.__accumulator[:]
+						if self.__accum_len > self.__callback.length:
+							tosplit = value [-1]
+							toremove = self.__accum_len - self.__callback.length
+							value[-1] = tosplit[:-toremove]
+							self.__accumulator.append(tosplit[-toremove:])
+							self.__accum_len = len(self.__accumulator[-1])
+						else:
+							self.__accum_len = 0
+						value = self.string_join(value)
 
-					self.__accum_len = 0
-					value = self.string_join(value)
+						if len(value) != self.__callback.length:
+							raise RuntimeError('Value %s is not of length %d' % (len(value), self.__callback.length))
 
-					callback_output = self.__callback
-					self.__callback = None
-		if tee_output is not None:
-			self.send_to_callback(s, tee_output)
+						callback_output = self.__callback
+						self.__callback = None
 
-		if finish_output is not None:
-			self.send_to_callback(s, finish_output)
-		elif value is not None:
-			self.send_to_callback(value, callback_output)
-		return len(value)
+						try:
+							self.__lock.release()
+							self.__put_value(value, tee_output, None, callback_output)
+						finally:
+							self.__lock.acquire()
+				finally:
+					if self.__accumulator:
+						finish_output = self.__finish_output if self.__finishing else None
+						self.__lock.release()
+						do_release = False
+						self.__put_value(self.__accumulator[-1], tee_output, finish_output, None)
+
+		finally:
+			if do_release:
+				self.__lock.release()
 	def set_read(self, length, callback, *args, **kwargs):
 		if self.__finished.is_set():
 			raise IOError('%s is closed' % self)
@@ -143,6 +170,8 @@ if __name__ == '__main__':
 		def set_value(self, source, value, next_callback = None):
 			TLOGGER.debug('Got value %s from %s' % (value, source))
 			self.value.append(value)
+			if next_callback is not None:
+				source.set_read(*next_callback)
 		def setUp(self):
 			self.te = TextEventSource()
 			self.value = []
@@ -152,9 +181,8 @@ if __name__ == '__main__':
 			self.te.set_read(5, self.set_value)
 			self.te.write('1' * 5)
 			self.assertEqual(self.value, ['1' * 5])
-		def disabled_test_split(self):
-			# TODO: Need to implement loop in write() to support this
-			self.te.set_read(5, self.set_value, self.set_value)
+		def test_split(self):
+			self.te.set_read(5, self.set_value, (5, self.set_value))
 			self.te.write('1' * 10)
-			self.assertEqual(self.value, ['1' * 5, '1' * 5])
+			self.assertEqual(self.value, ['1' * 5] * 2)
 	unittest.main()
