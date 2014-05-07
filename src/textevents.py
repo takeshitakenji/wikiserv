@@ -43,6 +43,7 @@ class BaseTextEventSource(object):
 		cls.check_string_type()
 		return cls.STRING_TYPE().join(parts)
 	def __put_value(self, value, tee_output, finish_output, callback_output):
+		LOGGER.debug('Pushing %s to tee_output=%s, finish_output=%s, callback_output=%s' % (repr(value), tee_output, finish_output, 'not None' if callback_output is not None else 'None'))
 		if tee_output is not None:
 			self.send_to_callback(value, tee_output)
 		if finish_output is not None:
@@ -80,38 +81,30 @@ class BaseTextEventSource(object):
 			else:
 				self.__accumulator.append(s)
 				self.__accum_len += len(s)
-				try:
-					while not self.__finishing and self.__callback is not None and self.__accum_len >= self.__callback.length:
-						value = self.__accumulator[:]
-						del self.__accumulator[:]
-						if self.__accum_len > self.__callback.length:
-							tosplit = value [-1]
-							toremove = self.__accum_len - self.__callback.length
-							value[-1] = tosplit[:-toremove]
-							self.__accumulator.append(tosplit[-toremove:])
-							self.__accum_len = len(self.__accumulator[-1])
-						else:
-							self.__accum_len = 0
-						value = self.string_join(value)
+				while not self.__finishing and self.__callback is not None and self.__accum_len >= self.__callback.length:
+					value = self.__accumulator[:]
+					del self.__accumulator[:]
+					if self.__accum_len > self.__callback.length:
+						tosplit = value [-1]
+						toremove = self.__accum_len - self.__callback.length
+						value[-1] = tosplit[:-toremove]
+						self.__accumulator.append(tosplit[-toremove:])
+						self.__accum_len = len(self.__accumulator[-1])
+					else:
+						self.__accum_len = 0
+					value = self.string_join(value)
 
-						if len(value) != self.__callback.length:
-							raise RuntimeError('Value %s is not of length %d' % (len(value), self.__callback.length))
+					if len(value) != self.__callback.length:
+						raise RuntimeError('Value %s is not of length %d' % (len(value), self.__callback.length))
 
-						callback_output = self.__callback
-						self.__callback = None
+					callback_output = self.__callback
+					self.__callback = None
 
-						try:
-							self.__lock.release()
-							self.__put_value(value, tee_output, None, callback_output)
-						finally:
-							self.__lock.acquire()
-				finally:
-					if self.__accumulator:
-						finish_output = self.__finish_output if self.__finishing else None
+					try:
 						self.__lock.release()
-						do_release = False
-						self.__put_value(self.__accumulator[-1], tee_output, finish_output, None)
-
+						self.__put_value(value, tee_output, None, callback_output)
+					finally:
+						self.__lock.acquire()
 		finally:
 			if do_release:
 				self.__lock.release()
@@ -161,18 +154,20 @@ class BinaryEventSource(BaseTextEventSource):
 
 if __name__ == '__main__':
 	import unittest, functools
+	from io import StringIO
 
 	TLOGGER = logging.getLogger('test-' + __name__)
 
 	logging.basicConfig(level = logging.DEBUG)
 
-	class TextEventTest(unittest.TestCase):
+	class TextEventCallbackTest(unittest.TestCase):
 		def set_value(self, source, value, next_callback = None):
 			TLOGGER.debug('Got value %s from %s' % (value, source))
 			self.value.append(value)
 			if next_callback is not None:
 				source.set_read(*next_callback)
 		def setUp(self):
+			TLOGGER.debug('Starting test %s' % self.id())
 			self.te = TextEventSource()
 			self.value = []
 		def tearDown(self):
@@ -183,6 +178,37 @@ if __name__ == '__main__':
 			self.assertEqual(self.value, ['1' * 5])
 		def test_split(self):
 			self.te.set_read(5, self.set_value, (5, self.set_value))
-			self.te.write('1' * 10)
-			self.assertEqual(self.value, ['1' * 5] * 2)
+			self.te.write('1' * 5 + '2' * 5)
+			self.assertEqual(self.value, ['1' * 5, '2' * 5])
+		def test_merge(self):
+			self.te.set_read(10, self.set_value)
+			self.te.write('1' * 5)
+			self.te.write('2' * 5)
+			self.assertEqual(self.value, ['1' * 5 + '2' * 5])
+	class TextEventTeeTest(unittest.TestCase):
+		def set_value(self, source, value, next_callback = None):
+			TLOGGER.debug('Got value %s from %s' % (value, source))
+			self.value.append(value)
+			if next_callback is not None:
+				source.set_read(*next_callback)
+		def setUp(self):
+			TLOGGER.debug('Starting test %s' % self.id())
+			self.tee_store = StringIO()
+			self.te = TextEventSource(self.tee_store)
+			self.value = []
+		def tearDown(self):
+			self.te.close()
+		def test_single(self):
+			self.te.set_read(5, self.set_value)
+			self.te.write('1' * 5)
+			self.assertEqual(self.tee_store.getvalue(), '1' * 5)
+		def test_split(self):
+			self.te.set_read(5, self.set_value, (5, self.set_value))
+			self.te.write('1' * 5 + '2' * 5)
+			self.assertEqual(self.tee_store.getvalue(), '1' * 5 + '2' * 5)
+		def test_merge(self):
+			self.te.set_read(10, self.set_value)
+			self.te.write('1' * 5)
+			self.te.write('2' * 5)
+			self.assertEqual(self.tee_store.getvalue(), '1' * 5 + '2' * 5)
 	unittest.main()
