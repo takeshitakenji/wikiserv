@@ -50,11 +50,6 @@ class BaseTextEventSource(object):
 			self.send_to_callback(value, finish_output)
 		elif callback_output is not None:
 			self.send_to_callback(value, callback_output)
-	def __not_accumulating(self, s):
-		LOGGER.warning('%s: Not accumulating string of length %d due to there being no callback' % (self, len(s)))
-		if self.__accumulator:
-			del self.__accumulator[:]
-			self.__accum_len = 0
 	def write(self, s):
 		self.check_string_type()
 		if self.__finished.is_set():
@@ -65,19 +60,38 @@ class BaseTextEventSource(object):
 			return 0
 		do_release = True
 		try:
+			LOGGER.warning('%s: callback=%s' % (self, repr(self)))
 			self.__lock.acquire()
 			tee_output = self.__tee_output
 			if self.__finishing:
+				value = None
 				if self.__accumulator:
+					self.__accumulator.append(s)
+					value = self.string_join(self.__accumulator)
 					del self.__accumulator[:]
 					self.__accum_len = 0
+				else:
+					value = s
 				finish_output = self.__finish_output
 				# We won't be entering back into locked code here
 				self.__lock.release()
 				do_release = False
 				self.__put_value(s, tee_output, finish_output, None)
 			elif self.__callback is None:
-				self.__not_accumulating(s)
+				LOGGER.warning('%s: Not accumulating string of length %d due to there being no callback' % (self, len(s)))
+				value = None
+				if self.__accumulator:
+					self.__accumulator.append(s)
+					value = self.string_join(self.__accumulator)
+					del self.__accumulator[:]
+					self.__accum_len = 0
+				else:
+					value = s
+				finish_output = self.__finish_output
+				# We won't be entering back into locked code here
+				self.__lock.release()
+				do_release = False
+				self.__put_value(value, tee_output, finish_output, None)
 			else:
 				self.__accumulator.append(s)
 				self.__accum_len += len(s)
@@ -105,6 +119,7 @@ class BaseTextEventSource(object):
 						self.__put_value(value, tee_output, None, callback_output)
 					finally:
 						self.__lock.acquire()
+				LOGGER.debug('%s: Resulting accum=%s callback=%s' % (self, repr(s), self.__callback))
 		finally:
 			if do_release:
 				self.__lock.release()
@@ -126,7 +141,7 @@ class BaseTextEventSource(object):
 			if self.__finishing:
 				raise RuntimeError('%s is already finishing' % self)
 			if self.__callback is not None:
-				LOGGER.warning('%s: Removing callback %s' % (self.__callback))
+				LOGGER.warning('%s: Removing callback %s' % self.__callback)
 				self.__callback = None
 			self.__finishing = True
 			if self.__finish_output is not None:
@@ -134,9 +149,21 @@ class BaseTextEventSource(object):
 			elif self.__tee_output:
 				LOGGER.info('%s: Dumping remaining output to nowhere')
 	def close(self):
+		value = None
+		tee_output, finish_output = None, None
 		with self.__lock:
 			if not self.__finished.is_set():
 				self.__finished.set()
+			if self.__accumulator:
+				LOGGER.debug('%s: Flushing' % self)
+				if self.__callback is not None:
+					LOGGER.error('%s: Unfinished callback %s' % self.__callback)
+				value = self.string_join(self.__accumulator)
+				del self.__accumulator[:]
+				self.__accum_len = 0
+				tee_output, finish_output = self.__tee_output, self.__finish_output
+		self.__put_value(value, tee_output, finish_output, None)
+
 	def wait_for_finish(self, timeout = None):
 		return self.__finished.wait(timeout)
 	def execute_method(self, method, *method_args, **method_kwargs):
@@ -167,24 +194,39 @@ if __name__ == '__main__':
 			if next_callback is not None:
 				source.set_read(*next_callback)
 		def setUp(self):
-			TLOGGER.debug('Starting test %s' % self.id())
+			#TLOGGER.debug('Starting test %s' % self.id())
 			self.te = TextEventSource()
 			self.value = []
 		def tearDown(self):
-			self.te.close()
+			pass
 		def test_single(self):
 			self.te.set_read(5, self.set_value)
 			self.te.write('1' * 5)
+			self.te.close()
 			self.assertEqual(self.value, ['1' * 5])
 		def test_split(self):
 			self.te.set_read(5, self.set_value, (5, self.set_value))
 			self.te.write('1' * 5 + '2' * 5)
+			self.te.close()
 			self.assertEqual(self.value, ['1' * 5, '2' * 5])
 		def test_merge(self):
 			self.te.set_read(10, self.set_value)
 			self.te.write('1' * 5)
 			self.te.write('2' * 5)
+			self.te.close()
 			self.assertEqual(self.value, ['1' * 5 + '2' * 5])
+		def test_continue_unaligned(self):
+			self.te.set_read(5, self.set_value)
+			self.te.write('1' * 7)
+			self.te.write('2' * 3)
+			self.te.close()
+			self.assertEqual(self.value, ['1' * 5])
+		def test_continue_unaligned2(self):
+			self.te.set_read(5, self.set_value)
+			self.te.write('1' * 3)
+			self.te.write('2' * 7)
+			self.te.close()
+			self.assertEqual(self.value, ['1' * 3 + '2' * 2])
 	class TextEventTeeTest(unittest.TestCase):
 		def set_value(self, source, value, next_callback = None):
 			TLOGGER.debug('Got value %s from %s' % (value, source))
@@ -192,23 +234,44 @@ if __name__ == '__main__':
 			if next_callback is not None:
 				source.set_read(*next_callback)
 		def setUp(self):
-			TLOGGER.debug('Starting test %s' % self.id())
+			#TLOGGER.debug('Starting test %s' % self.id())
 			self.tee_store = StringIO()
 			self.te = TextEventSource(self.tee_store)
 			self.value = []
 		def tearDown(self):
-			self.te.close()
+			pass
 		def test_single(self):
 			self.te.set_read(5, self.set_value)
 			self.te.write('1' * 5)
+			self.te.close()
 			self.assertEqual(self.tee_store.getvalue(), '1' * 5)
 		def test_split(self):
 			self.te.set_read(5, self.set_value, (5, self.set_value))
 			self.te.write('1' * 5 + '2' * 5)
+			self.te.close()
 			self.assertEqual(self.tee_store.getvalue(), '1' * 5 + '2' * 5)
 		def test_merge(self):
 			self.te.set_read(10, self.set_value)
 			self.te.write('1' * 5)
 			self.te.write('2' * 5)
+			self.te.close()
 			self.assertEqual(self.tee_store.getvalue(), '1' * 5 + '2' * 5)
+		def test_continue(self):
+			self.te.set_read(5, self.set_value)
+			self.te.write('1' * 5)
+			self.te.write('2' * 5)
+			self.te.close()
+			self.assertEqual(self.tee_store.getvalue(), '1' * 5 + '2' * 5)
+		def test_continue_unaligned(self):
+			self.te.set_read(5, self.set_value)
+			self.te.write('1' * 7)
+			self.te.write('2' * 3)
+			self.te.close()
+			self.assertEqual(self.tee_store.getvalue(), '1' * 7 + '2' * 3)
+		def test_continue_unaligned2(self):
+			self.te.set_read(5, self.set_value)
+			self.te.write('1' * 3)
+			self.te.write('2' * 7)
+			self.te.close()
+			self.assertEqual(self.tee_store.getvalue(), '1' * 3 + '2' * 7)
 	unittest.main()
