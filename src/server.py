@@ -8,7 +8,7 @@ import tornado.web
 import logging, binascii, cgi
 import config, cache, processors, filestuff, search, worker
 from dateutil.parser import parse as date_parse
-from threading import Semaphore
+from threading import Lock
 from pytz import utc
 from dateutil.tz import tzlocal
 from email.utils import format_datetime
@@ -26,7 +26,7 @@ LOGGER = logging.getLogger('wikiserv')
 class Server(object):
 	__slots__ = 'configuration', 'caches', 'processors', 'send_etags', 'search', 'preview_lines', 'workers',
 	instance = None
-	ilock = Semaphore()
+	ilock = Lock()
 	localzone = tzlocal()
 	CACHE_TYPES = {
 		'document' : 'process',
