@@ -81,7 +81,7 @@ class BaseTextEventSource(object):
 				# We won't be entering back into locked code here
 				self.__lock.release()
 				do_release = False
-				self.__put_value(s, tee_output, finish_output, None)
+				self.__put_value(value, tee_output, finish_output, None)
 			elif self.__callback is None:
 				LOGGER.warning('%s: Not accumulating string of length %d due to there being no callback' % (self, len(s)))
 				value = None
@@ -149,7 +149,7 @@ class BaseTextEventSource(object):
 				LOGGER.warning('%s: Removing callback %s' % self.__callback)
 				self.__callback = None
 			self.__finishing = True
-			if self.__finish_output is not None:
+			if self.__finish_output is None:
 				self.__finish_output = finish_output
 			elif self.__tee_output:
 				LOGGER.info('%s: Dumping remaining output to nowhere')
@@ -192,14 +192,17 @@ if __name__ == '__main__':
 
 	logging.basicConfig(level = logging.DEBUG)
 
-	class TextEventCallbackTest(unittest.TestCase):
-		def set_value(self, source, value, next_callback = None):
+	class TextEventTestCase(unittest.TestCase):
+		def set_value(self, source, value, next_callback = None, finish = None):
 			TLOGGER.debug('Got value %s from %s' % (value, source))
 			self.value.append(value)
-			if next_callback is not None:
+			if finish is not None:
+				source.set_finish(finish)
+			elif next_callback is not None:
 				source.set_read(*next_callback)
+
+	class TextEventCallbackTest(TextEventTestCase):
 		def setUp(self):
-			#TLOGGER.debug('Starting test %s' % self.id())
 			self.te = TextEventSource()
 			self.value = []
 		def tearDown(self):
@@ -210,7 +213,7 @@ if __name__ == '__main__':
 			self.te.close()
 			self.assertEqual(self.value, ['1' * 5])
 		def test_split(self):
-			self.te.set_read(5, self.set_value, (5, self.set_value))
+			self.te.set_read(5, self.set_value, next_callback = (5, self.set_value))
 			self.te.write('1' * 5 + '2' * 5)
 			self.te.close()
 			self.assertEqual(self.value, ['1' * 5, '2' * 5])
@@ -232,14 +235,34 @@ if __name__ == '__main__':
 			self.te.write('2' * 7)
 			self.te.close()
 			self.assertEqual(self.value, ['1' * 3 + '2' * 2])
-	class TextEventTeeTest(unittest.TestCase):
+	class TextEventFinishTest(TextEventTestCase):
+		def setUp(self):
+			self.te = TextEventSource()
+			self.value = []
+			self.finish = StringIO()
+		def tearDown(self):
+			pass
+		def test_unaligned(self):
+			self.te.set_read(5, self.set_value, finish = self.finish)
+			self.te.write('1' * 7)
+			self.te.write('2' * 3)
+			self.te.close()
+			self.assertEqual(self.value, ['1' * 5])
+			self.assertEqual(self.finish.getvalue(), '1' * 2 + '2' * 3)
+		def test_unaligned2(self):
+			self.te.set_read(5, self.set_value, finish = self.finish)
+			self.te.write('1' * 3)
+			self.te.write('2' * 7)
+			self.te.close()
+			self.assertEqual(self.value, ['1' * 3 + '2' * 2])
+			self.assertEqual(self.finish.getvalue(), '2' * 5)
+	class TextEventTeeTest(TextEventTestCase):
 		def set_value(self, source, value, next_callback = None):
 			TLOGGER.debug('Got value %s from %s' % (value, source))
 			self.value.append(value)
 			if next_callback is not None:
 				source.set_read(*next_callback)
 		def setUp(self):
-			#TLOGGER.debug('Starting test %s' % self.id())
 			self.tee_store = StringIO()
 			self.te = TextEventSource(self.tee_store)
 			self.value = []
@@ -251,7 +274,7 @@ if __name__ == '__main__':
 			self.te.close()
 			self.assertEqual(self.tee_store.getvalue(), '1' * 5)
 		def test_split(self):
-			self.te.set_read(5, self.set_value, (5, self.set_value))
+			self.te.set_read(5, self.set_value, next_callback = (5, self.set_value))
 			self.te.write('1' * 5 + '2' * 5)
 			self.te.close()
 			self.assertEqual(self.tee_store.getvalue(), '1' * 5 + '2' * 5)
