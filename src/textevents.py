@@ -47,9 +47,15 @@ class BaseTextEventSource(object):
 		if tee_output is not None:
 			self.send_to_callback(value, tee_output)
 		if finish_output is not None:
-			self.send_to_callback(value, finish_output)
+			try:
+				self.send_to_callback(value, finish_output)
+			except:
+				LOGGER.exception('%s: When writing output to finish_output=%s' % (self, finish_output))
 		elif callback_output is not None:
-			self.send_to_callback(value, callback_output)
+			try:
+				self.send_to_callback(value, callback_output)
+			except:
+				LOGGER.exception('%s: When writing output to callback=%s' % (self, callback_output))
 	def write(self, s):
 		self.check_string_type()
 		if self.__finished.is_set():
