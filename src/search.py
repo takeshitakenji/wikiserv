@@ -16,7 +16,7 @@ LOGGER = logging.getLogger('wikiserv')
 def scrub_terms(string):
 	if not string:
 		raise ValueError(string)
-	terms = (x.strip().lower() for x in string.split())
+	terms = (x.strip().casefold() for x in string.split())
 	# Clean up the mess
 	terms = tuple(sorted({x for x in terms if x}))
 	if not terms:
@@ -42,7 +42,7 @@ class PathFilter(Filter):
 		self.terms = scrub_terms(string)
 		Filter.__init__(self, 'path=%s' % ' '.join(self.terms))
 	def __call__(self, path, root):
-		path = path.lower()
+		path = path.casefold()
 		LOGGER.debug('PathFilter query=%s path=%s' % (self.terms, path))
 		return any((term in path for term in self.terms))
 
@@ -77,6 +77,7 @@ class ContentFilter(Filter):
 			line = reader.readline()
 			found = set()
 			while line:
+				line = line.casefold()
 				found.update((term for term in self.terms if term in line))
 				if len(found) == len(self.terms):
 					return True
