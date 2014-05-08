@@ -71,6 +71,8 @@ class BaseTextEventSource(object):
 			if self.__finishing:
 				value = None
 				if self.__accumulator:
+					# It seems like a better idea to have this thread trigger the flushing of the accumulator
+					# rather than having set_finish() do it.
 					self.__accumulator.append(s)
 					value = self.string_join(self.__accumulator)
 					del self.__accumulator[:]
@@ -151,7 +153,7 @@ class BaseTextEventSource(object):
 			self.__finishing = True
 			if self.__finish_output is None:
 				self.__finish_output = finish_output
-			elif self.__tee_output:
+			elif not self.__tee_output:
 				LOGGER.info('%s: Dumping remaining output to nowhere')
 	def close(self):
 		value = None
