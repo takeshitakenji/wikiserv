@@ -74,12 +74,48 @@ else:
 		raise ValueError(executable)
 
 class TextEventHeaderReader(object):
-	__slots__ = '__text_event', '__final_output',
+	__slots__ = '__text_event', '__final_output', '__header_handler', 'header',
+	MODE_READ_LENGTH = 0b10
+	MODE_READ_DEST = 0b01
+
+	MODE_READ_ENC = 0b00
+	MODE_READ_ENC_LENGTH = MODE_READ_ENC | MODE_READ_LENGTH
+
+	MODE_READ_CTYPE = 0b01
+	MODE_READ_CTYPE_LENGTH = MODE_READ_CTYPE | MODE_READ_LENGTH
 	# TODO: create mode values
-	def __init__(self, tevent, final_output):
-		raise NotImplementedError
-	def on_text(self, mode, s):
-		raise NotImplementedError
+	def __init__(self, tevent, header_handler, final_output = None):
+		self.__text_event = tevent
+		self.header = []
+		self.__header_handler = header_handler
+		self.__final_output = final_output
+		self.__text_event.set_read(Processor.length_length, self.on_text, self.MODE_READ_ENC_LENGTH)
+	def on_text(self, source, s, mode):
+		LOGGER.debug('on_text(%s, %s, %d)' % (source, s, mode))
+		if mode & self.MODE_READ_LENGTH:
+			length, = struct.unpack(Processor.length_format, s)
+			if length > 0:
+				source.set_read(length, self.on_text, mode & self.MODE_READ_DEST)
+			else: # Nothing to read
+				self.header.append(None)
+				if mode == self.MODE_READ_ENC_LENGTH:
+					source.set_read(Processor.length_length, self.on_text, self.MODE_READ_CTYPE_LENGTH)
+				else: # All done
+					LOGGER.debug('Resulting header: %s, %s' % (repr(self.header[0]), repr(self.header[1])))
+					self.__header_handler(Processor.Header(self.header[0], self.header[1]))
+					source.set_finish(self.__final_output)
+		elif mode == self.MODE_READ_ENC:
+			self.header.append(s)
+			source.set_read(Processor.length_length, self.on_text, self.MODE_READ_CTYPE_LENGTH)
+		elif mode == self.MODE_READ_CTYPE:
+			# All done
+			self.header.append(s)
+			LOGGER.debug('Resulting header: %s, %s' % (repr(self.header[0]), repr(self.header[1])))
+			self.__header_handler(Processor.Header(self.header[0], self.header[1]))
+			source.set_finish(self.__final_output)
+
+
+
 
 class BaseProcessor(object):
 	Header = namedtuple('Header', ['encoding', 'mime'])

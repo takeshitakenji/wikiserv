@@ -9,6 +9,7 @@ import logging, binascii, cgi
 import config, cache, processors, filestuff, search, worker
 from dateutil.parser import parse as date_parse
 from threading import Lock
+from textevents import BinaryEventSource
 from pytz import utc
 from dateutil.tz import tzlocal
 from email.utils import format_datetime
@@ -259,7 +260,7 @@ class IndexHandler(tornado.web.RequestHandler):
 			print('<h1>Wiki Index</h1>', file = self)
 
 		print('<ul>', file = self)
-		server = Server.get_instance() if filter_func else None
+		server = Server.get_instance()
 		for f in files:
 			self.write('\t<li><a href="/%s">%s</a> @ %s (%f kB)' % (cgi.escape(f.name, True), cgi.escape(f.name), f.modified.astimezone(server.localzone).strftime('%c (%Z)'), (float(f.size) / 1024)))
 			if filter_func and server:
@@ -285,7 +286,7 @@ class IndexHandler(tornado.web.RequestHandler):
 class WikiHandler(tornado.web.RequestHandler):
 	def compute_etag(self):
 		return None
-	def check_fill_headers(self, entry, header = None):
+	def check_fill_headers(self, header):
 		LOGGER.debug('Getting headers for request')
 		prev_mtime = None
 		server = Server.get_instance()
@@ -296,19 +297,12 @@ class WikiHandler(tornado.web.RequestHandler):
 			LOGGER.debug('Found If-Modified-Since=%s' % prev_mtime)
 		except KeyError:
 			pass
-		if header is None:
-			header = entry.header
 		if server.send_etags:
 			checksum = header.checksum
 			if checksum:
 				self.set_header('Etag', '"%s"' % binascii.hexlify(checksum).decode('ascii'))
 		self.set_header('Last-Modified', format_datetime(header.timestamp))
 		self.set_header('Cache-Control', 'Public')
-		content_header = processors.Processor.read_header(entry)
-		if content_header.encoding:
-			self.set_header('Content-Type', '%s; charset=%s' % (content_header.mime, content_header.encoding))
-		else:
-			self.set_header('Content-Type', content_header.mime)
 		if prev_mtime is not None and header.timestamp.replace(microsecond = 0) <= prev_mtime:
 			LOGGER.debug('Returning 304 from modification time')
 			self.set_status(304)
@@ -318,6 +312,11 @@ class WikiHandler(tornado.web.RequestHandler):
 			self.set_status(304)
 			return False
 		return True
+	def handle_headers(self, content_header):
+		if content_header.encoding:
+			self.set_header('Content-Type', '%s; charset=%s' % (content_header.mime, content_header.encoding))
+		else:
+			self.set_header('Content-Type', content_header.mime)
 	def head(self, path):
 		LOGGER.debug('HEAD %s' % path)
 		try:
@@ -326,16 +325,13 @@ class WikiHandler(tornado.web.RequestHandler):
 			with wrap as entry:
 				if isinstance(entry, cache.AutoProcess):
 					# NoCache
-					reader = worker.RWAdapter(entry)
-					server.workers.schedule(reader)
-					try:
-						with reader:
-							self.check_fill_headers(reader, entry.header)
-					finally:
-						reader.wait()
-
+					do_serve = self.check_fill_headers(entry.header)
+					tevent = BinaryEventSource()
+					header_reader = processors.TextEventHeaderReader(tevent, self.handle_headers)
+					entry(tevent)
 				else:
-					self.check_fill_headers(entry)
+					self.check_fill_headers(entry.header)
+					self.handle_headers(processors.Processor.read_header(entry))
 		except KeyError:
 			raise tornado.web.HTTPError(404)
 	def get(self, path):
@@ -346,17 +342,14 @@ class WikiHandler(tornado.web.RequestHandler):
 			with wrap as entry:
 				if isinstance(entry, cache.AutoProcess):
 					# NoCache
-					reader = worker.RWAdapter(entry)
-					server.workers.schedule(reader)
-					try:
-						with reader:
-							if not self.check_fill_headers(reader, entry.header):
-								return
-							copyfileobj(reader, self)
-					finally:
-						reader.wait()
+					do_serve = self.check_fill_headers(entry.header)
+					tevent = BinaryEventSource()
+					header_reader = processors.TextEventHeaderReader(tevent, self.handle_headers, (self if do_serve else None))
+					entry(tevent)
 				else:
-					if not self.check_fill_headers(entry):
+					do_serve = self.check_fill_headers(entry.header)
+					self.handle_headers(processors.Processor.read_header(entry))
+					if not do_serve:
 						return
 					LOGGER.debug('Returning data')
 					copyfileobj(entry, self)

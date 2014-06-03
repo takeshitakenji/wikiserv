@@ -130,6 +130,7 @@ class BaseTextEventSource(object):
 		finally:
 			if do_release:
 				self.__lock.release()
+		return len(s)
 	def set_read(self, length, callback, *args, **kwargs):
 		if self.__finished.is_set():
 			raise IOError('%s is closed' % self)
