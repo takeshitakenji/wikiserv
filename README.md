@@ -136,6 +136,10 @@ A better solution is being worked on, using a design where the writing
 done by `process()` is actually triggering events on an object which
 will execute callbacks upon said events.
 
+**NOTE:** For now, only the non-caching mode will use the TextEvent API,
+to decouple the cache writing and sending on the network in the event of
+an I/O error.
+
 ![New design](doc/textevent_fix.png)
 
 With this setup, writing to the cache is accomplished with a tee,

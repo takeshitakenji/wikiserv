@@ -323,9 +323,14 @@ class WikiHandler(tornado.web.RequestHandler):
 			server = Server.get_instance()
 			wrap = server.cache[path]
 			with wrap as entry:
+				# TODO: Make the caching and non-caching modes both have the same
+				# API used at this level.  This means somehow adding content_header
+				# processing into the entry, or a class that wraps the entry.
 				if isinstance(entry, cache.AutoProcess):
 					# NoCache
 					do_serve = self.check_fill_headers(entry.header)
+					# TODO: move textevents stuff into AutoProcess, a subclass of it,
+					# or the wrapper class in the above TODO.
 					tevent = BinaryEventSource()
 					header_reader = processors.TextEventHeaderReader(tevent, self.handle_headers)
 					entry(tevent)
@@ -340,9 +345,14 @@ class WikiHandler(tornado.web.RequestHandler):
 			server = Server.get_instance()
 			wrap = server.cache[path]
 			with wrap as entry:
+				# TODO: Make the caching and non-caching modes both have the same
+				# API used at this level.  This means somehow adding content_header
+				# processing into the entry, or a class that wraps the entry.
 				if isinstance(entry, cache.AutoProcess):
 					# NoCache
 					do_serve = self.check_fill_headers(entry.header)
+					# TODO: move textevents stuff into AutoProcess, a subclass of it,
+					# or the wrapper class in the above TODO.
 					tevent = BinaryEventSource()
 					header_reader = processors.TextEventHeaderReader(tevent, self.handle_headers, (self if do_serve else None))
 					entry(tevent)
